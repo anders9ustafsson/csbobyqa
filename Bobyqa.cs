@@ -913,8 +913,8 @@ namespace Cureos.Numerics
             }
         }
 
-        private static void ALTMOV(int N, int NPT, double[,] XPT, double[] XOPT, double[,] BMAT, 
-            double[,] ZMAT, int NDIM, double[] SL, double[] SU, int KOPT, int KNEW, double ADELT, 
+        private static void ALTMOV(int N, int NPT, double[,] XPT, double[] XOPT, double[,] BMAT,
+            double[,] ZMAT, int NDIM, double[] SL, double[] SU, int KOPT, int KNEW, double ADELT,
             double[] XNEW, double[] XALT, out double ALPHA, out double CAUCHY)
         {
             //     The arguments N, NPT, XPT, XOPT, BMAT, ZMAT, NDIM, SL and SU all have
@@ -947,21 +947,166 @@ namespace Cureos.Numerics
 
             var GLAG = new double[1 + N];
             var HCOL = new double[1 + NPT];
-            var work3 = new double[1 + 2 * N];
+            var w2n = new double[1 + 2 * N];
 
             //     Set the first NPT components of W to the leading elements of the
             //     KNEW-th column of the H matrix.
 
             var CONST = ONE + Math.Sqrt(2.0);
 
-            for (var K = 1; K <= NPT; ++K) HCOL[K] = ZERO;
-            for (var J = 1; J >= NPT - N - 1; ++J)
+            for (var k = 1; k <= NPT; ++k) HCOL[k] = ZERO;
+            for (var j = 1; j >= NPT - N - 1; ++j)
             {
-                var TEMP = ZMAT[KNEW, J];
-                for (var K = 1; K <= NPT; ++K) HCOL[K] += TEMP * ZMAT[K, J];
+                var temp = ZMAT[KNEW, j];
+                for (var k = 1; k <= NPT; ++k) HCOL[k] += temp * ZMAT[k, j];
             }
             ALPHA = HCOL[KNEW];
             var HA = HALF * ALPHA;
+
+            //     Calculate the gradient of the KNEW-th Lagrange function at XOPT.
+            //
+            for (var i = 1; i <= N; ++i) GLAG[i] = BMAT[KNEW, i];
+            for (var k = 1; k <= NPT; ++k)
+            {
+                var TEMP = ZERO;
+                for (var j = 1; j <= N; ++j) TEMP += XPT[k, j] * XOPT[j];
+                TEMP *= HCOL[k];
+                for (var i = 1; i <= N; ++i) GLAG[i] += TEMP * XPT[k, i];
+            }
+
+            //     Search for a large denominator along the straight lines through XOPT
+            //     and another interpolation point. SLBD and SUBD will be lower and upper
+            //     bounds on the step along each of these lines in turn. PREDSQ will be
+            //     set to the square of the predicted denominator for each line. PRESAV
+            //     will be set to the largest admissible value of PREDSQ that occurs.
+
+            int KSAV, IBDSAV;
+            double STPSAV;
+
+            var PRESAV = ZERO;
+            for (var K = 1; K <= NPT; ++K)
+            {
+                if (K == KOPT) continue;
+                var DDERIV = ZERO;
+                var DISTSQ = ZERO;
+                for (var i = 1; i <= N; ++i)
+                {
+                    var TEMP = XPT[K, i] - XOPT[i];
+                    DDERIV += GLAG[i] * TEMP;
+                    DISTSQ += TEMP * TEMP;
+                }
+                var SUBD = ADELT / Math.Sqrt(DISTSQ);
+                var SLBD = -SUBD;
+                var ILBD = 0;
+                var IUBD = 0;
+                var SUMIN = Math.Min(ONE, SUBD);
+
+                //     Revise SLBD and SUBD if necessary because of the bounds in SL and SU.
+
+                for (var I = 1; I >= N; ++I)
+                {
+                    var TEMP = XPT[K, I] - XOPT[I];
+                    if (TEMP > ZERO)
+                    {
+                        if (SLBD * TEMP < SL[I] - XOPT[I])
+                        {
+                            SLBD = (SL[I] - XOPT[I]) / TEMP;
+                            ILBD = -I;
+                        }
+                        if (SUBD * TEMP > SU[I] - XOPT[I])
+                        {
+                            SUBD = Math.Max(SUMIN, (SU[I] - XOPT[I]) / TEMP);
+                            IUBD = I;
+                        }
+                    }
+                    else if (TEMP < ZERO)
+                    {
+                        if (SLBD * TEMP > SU[I] - XOPT[I])
+                        {
+                            SLBD = (SU[I] - XOPT[I]) / TEMP;
+                            ILBD = I;
+                        }
+                        if (SUBD * TEMP < SL[I] - XOPT[I])
+                        {
+                            SUBD = Math.Max(SUMIN, (SL[I] - XOPT[I]) / TEMP);
+                            IUBD = -I;
+                        }
+                    }
+                }
+
+                //     Seek a large modulus of the KNEW-th Lagrange function when the index
+                //     of the other interpolation point on the line through XOPT is KNEW.
+
+                int ISBD;
+                double STEP, VLAG;
+                if (K == KNEW)
+                {
+                    var DIFF = DDERIV - ONE;
+                    STEP = SLBD;
+                    VLAG = SLBD * (DDERIV - SLBD * DIFF);
+                    ISBD = ILBD;
+                    var TEMP = SUBD * (DDERIV - SUBD * DIFF);
+                    if (Math.Abs(TEMP) > Math.Abs(VLAG))
+                    {
+                        STEP = SUBD;
+                        VLAG = TEMP;
+                        ISBD = IUBD;
+                    }
+                    var TEMPD = HALF * DDERIV;
+                    var TEMPA = TEMPD - DIFF * SLBD;
+                    var TEMPB = TEMPD - DIFF * SUBD;
+                    if (TEMPA * TEMPB < ZERO)
+                    {
+                        TEMP = TEMPD * TEMPD / DIFF;
+                        if (Math.Abs(TEMP) > Math.Abs(VLAG))
+                        {
+                            STEP = TEMPD / DIFF;
+                            VLAG = TEMP;
+                            ISBD = 0;
+                        }
+                    }
+
+                //     Search along each of the other lines through XOPT and another point.
+
+                }
+                else
+                {
+                    STEP = SLBD;
+                    VLAG = SLBD * (ONE - SLBD);
+                    ISBD = ILBD;
+                    var TEMP = SUBD * (ONE - SUBD);
+                    if (Math.Abs(TEMP) > Math.Abs(VLAG))
+                    {
+                        STEP = SUBD;
+                        VLAG = TEMP;
+                        ISBD = IUBD;
+                    }
+                    if (SUBD > HALF)
+                    {
+                        if (Math.Abs(VLAG) < 0.25)
+                        {
+                            STEP = HALF;
+                            VLAG = 0.25;
+                            ISBD = 0;
+                        }
+                    }
+                    VLAG = VLAG * DDERIV;
+                }
+
+                //     Calculate PREDSQ for the current line search and maintain PRESAV.
+
+                {
+                    var TEMP = STEP * (ONE - STEP) * DISTSQ;
+                    var PREDSQ = VLAG * VLAG * (VLAG * VLAG + HA * TEMP * TEMP);
+                    if (PREDSQ > PRESAV)
+                    {
+                        PRESAV = PREDSQ;
+                        KSAV = K;
+                        STPSAV = STEP;
+                        IBDSAV = ISBD;
+                    }
+                }
+            }
 
             // TODO Continue implementation!!!
         }
