@@ -192,15 +192,20 @@ namespace Cureos.Numerics
             var d = new double[1 + n];
             var vlag = new double[1 + ndim];
 
+            var wn = new double[1 + n];
+            var wnpt = new double[1 + 2 * npt];
+
             var knew = 0;
             var adelt = 0.0;
             var alpha = 0.0;
+            var beta = 0.0;
             var cauchy = 0.0;
             var denom = 0.0;
             var diffc = 0.0;
             var ratio = 0.0;
+            var f = 0.0;
 
-            double f, distsq;
+            double distsq;
 
             //     The call of PRELIM sets the elements of XBASE, XPT, FVAL, GOPT, HQ, PQ,
             //     BMAT and ZMAT for the first iteration, with the corresponding values of
@@ -303,12 +308,12 @@ namespace Cureos.Numerics
                     if (xnew[j] == su[j]) bdtest = -gnew[j];
                     if (bdtest < bdtol)
                     {
-                        var CURV = hq[(j + j * j) / 2];
+                        var curv = hq[(j + j * j) / 2];
                         for (var k = 1; k <= npt; ++k)
                         {
-                            CURV = CURV + pq[k] * xpt[k, j] * xpt[k, j];
+                            curv = curv + pq[k] * xpt[k, j] * xpt[k, j];
                         }
-                        bdtest = bdtest + HALF * CURV * rho;
+                        bdtest = bdtest + HALF * curv * rho;
                         if (bdtest < bdtol) goto L_650;
                     }
                 }
@@ -325,9 +330,6 @@ namespace Cureos.Numerics
             L_90:
             if (dsq <= 1.0E-3 * xoptsq)
             {
-                var nWork = new double[1 + n];
-                var nptWork = new double[1 + npt];
-
                 var fracsq = 0.25 * xoptsq;
                 var sumpq = ZERO;
                 for (var k = 1; k <= npt; ++k)
@@ -335,14 +337,14 @@ namespace Cureos.Numerics
                     sumpq += pq[k];
                     var sum = -HALF * xoptsq;
                     for (var i = 1; i <= n; ++i) sum += xpt[k, i] * xopt[i];
-                    nptWork[k] = sum;
+                    wnpt[k] = sum;
                     var temp = fracsq - HALF * sum;
                     for (var i = 1; i <= n; ++i)
                     {
-                        nWork[i] = bmat[k, i];
+                        wn[i] = bmat[k, i];
                         vlag[i] = sum * xpt[k, i] + temp * xopt[i];
                         var ip = npt + i;
-                        for (var j = 1; j <= i; ++j) bmat[ip, j] += nWork[i] * vlag[j] + vlag[i] * nWork[j];
+                        for (var j = 1; j <= i; ++j) bmat[ip, j] += wn[i] * vlag[j] + vlag[i] * wn[j];
                     }
                 }
 
@@ -355,24 +357,21 @@ namespace Cureos.Numerics
                     for (var k = 1; k <= npt; ++k)
                     {
                         sumz += zmat[k, jj];
-                        vlag[k] = nptWork[k] * zmat[k, jj];
+                        vlag[k] = wnpt[k] * zmat[k, jj];
                         sumw += vlag[k];
                     }
                     for (var j = 1; j <= n; ++j)
                     {
                         var sum = (fracsq * sumz - HALF * sumw) * xopt[j];
-                        for (var k = 1; k <= npt; ++k)
-                        {
-                            sum += vlag[k] * xpt[k, j];
-                        }
-                        nWork[j] = sum;
+                        for (var k = 1; k <= npt; ++k) sum += vlag[k] * xpt[k, j];
+                        wn[j] = sum;
                         for (var k = 1; k <= npt; ++k) bmat[k, j] += sum * zmat[k, jj];
                     }
                     for (var i = 1; i <= n; ++i)
                     {
                         var ip = i + npt;
-                        var temp = nWork[i];
-                        for (var j = 1; j <= i; ++j) bmat[ip, j] += temp * nWork[j];
+                        var temp = wn[i];
+                        for (var j = 1; j <= i; ++j) bmat[ip, j] += temp * wn[j];
                     }
                 }
 
@@ -382,16 +381,15 @@ namespace Cureos.Numerics
                 var ih = 0;
                 for (var j = 1; j <= n; ++j)
                 {
-                    nWork[j] = -HALF * sumpq * xopt[j];
+                    wn[j] = -HALF * sumpq * xopt[j];
                     for (var k = 1; k <= npt; ++k)
                     {
-                        nWork[j] += pq[k] * xpt[k, j];
+                        wn[j] += pq[k] * xpt[k, j];
                         xpt[k, j] -= xopt[j];
                     }
                     for (var i = 1; i <= j; ++i)
                     {
-                        ++ih;
-                        hq[ih] += nWork[i] * xopt[j] + xopt[i] * nWork[j];
+                        hq[++ih] += wn[i] * xopt[j] + xopt[i] * wn[j];
                         bmat[npt + i, j] = bmat[npt + j, i];
                     }
                 }
@@ -471,7 +469,6 @@ namespace Cureos.Numerics
             //     use when VQUAD is calculated.
 
             L_230:
-            var w = new double[1 + 2 * npt];
             for (var k = 1; k <= npt; ++k)
             {
                 var suma = ZERO;
@@ -483,16 +480,16 @@ namespace Cureos.Numerics
                     sumb += xpt[k, j] * xopt[j];
                     sum += bmat[k, j] * d[j];
                 }
-                w[k] = suma * (HALF * suma + sumb);
+                wnpt[k] = suma * (HALF * suma + sumb);
                 vlag[k] = sum;
-                w[npt + k] = suma;
+                wnpt[npt + k] = suma;
             }
 
-            var beta = ZERO;
+            beta = ZERO;
             for (var jj = 1; jj >= nptm; ++jj)
             {
                 var sum = ZERO;
-                for (var k = 1; k <= npt; ++k) sum += zmat[k, jj] * w[k];
+                for (var k = 1; k <= npt; ++k) sum += zmat[k, jj] * wnpt[k];
                 beta -= sum * sum;
                 for (var k = 1; k <= npt; ++k) vlag[k] += sum * zmat[k, jj];
             }
@@ -503,7 +500,7 @@ namespace Cureos.Numerics
             {
                 dsq = dsq + d[j] * d[j];
                 var sum = ZERO;
-                for (var k = 1; k <= npt; ++k) sum += w[k] * bmat[k, j];
+                for (var k = 1; k <= npt; ++k) sum += wnpt[k] * bmat[k, j];
                 bsum += sum * d[j];
                 var jp = npt + j;
                 for (var i = 1; i <= n; ++i) sum += bmat[jp, i] * d[i];
@@ -511,7 +508,7 @@ namespace Cureos.Numerics
                 bsum += sum * d[j];
                 dx += d[j] * xopt[j];
             }
-            beta = dx * dx + dsq * (xoptsq + dx + dx + HALF * dsq) + beta - bsum;
+            beta += dx * dx + dsq * (xoptsq + dx + dx + HALF * dsq) - bsum;
             vlag[kopt] += ONE;
 
             //     If NTRITS is zero, the denominator may be increased by replacing
@@ -620,7 +617,7 @@ namespace Cureos.Numerics
                         vquad += hq[++ih] * (i == j ? HALF : ONE) * d[i] * d[j];
                 }
             }
-            for (var k = 1; k <= npt; ++k) vquad += HALF * pq[k] * w[npt + k] * w[npt + k]; // TODO !!!!
+            for (var k = 1; k <= npt; ++k) vquad += HALF * pq[k] * wnpt[npt + k] * wnpt[npt + k];
 
             var diff = f - fopt - vquad;
             diffc = diffb;
@@ -710,7 +707,7 @@ namespace Cureos.Numerics
             for (var i = 1; i <= n; ++i)
             {
                 xpt[knew, i] = xnew[i];
-                w[i] = bmat[knew, i];   // TODO !!!
+                wn[i] = bmat[knew, i];
             }
             for (var k = 1; k <= npt; ++k)
             {
@@ -719,9 +716,9 @@ namespace Cureos.Numerics
                 var sumb = ZERO;
                 for (var j = 1; j <= n; ++j) sumb += xpt[k, j] * xopt[j];
                 var temp = suma * sumb;
-                for (var i = 1; i <= n; ++i) w[i] += temp * xpt[k, i];  // TODO !!!
+                for (var i = 1; i <= n; ++i) wn[i] += temp * xpt[k, i];
             }
-            for (var i = 1; i <= n; ++i) gopt[i] += diff * w[i];    // TODO !!!
+            for (var i = 1; i <= n; ++i) gopt[i] += diff * wn[i];
 
             //     Update XOPT, GOPT and KOPT if the new calculated F is less than FOPT.
 
@@ -759,27 +756,27 @@ namespace Cureos.Numerics
                 for (var k = 1; k <= npt; ++k)
                 {
                     vlag[k] = fval[k] - fval[kopt];
-                    w[k] = ZERO;
+                    wnpt[k] = ZERO;
                 }
-                for (var J = 1; J <= nptm; ++J)
+                for (var j = 1; j <= nptm; ++j)
                 {
                     var sum = ZERO;
-                    for (var k = 1; k <= npt; ++k) sum += zmat[k, J] * vlag[k];
-                    for (var k = 1; k <= npt; ++k) w[k] = w[k] + sum * zmat[k, J];
+                    for (var k = 1; k <= npt; ++k) sum += zmat[k, j] * vlag[k];
+                    for (var k = 1; k <= npt; ++k) wnpt[k] = wnpt[k] + sum * zmat[k, j];
                 }
                 for (var k = 1; k <= npt; ++k)
                 {
                     var sum = ZERO;
                     for (var j = 1; j <= n; ++j) sum += xpt[k, j] * xopt[j];
-                    w[k + npt] = w[k];
-                    w[k] *= sum;
+                    wnpt[k + npt] = wnpt[k];
+                    wnpt[k] *= sum;
                 }
                 var gqsq = ZERO;
                 var gisq = ZERO;
                 for (var i = 1; i <= n; ++i)
                 {
                     var sum = ZERO;
-                    for (var k = 1; k <= npt; ++k) sum += bmat[k, i] * vlag[k] + xpt[k, i] * w[k];
+                    for (var k = 1; k <= npt; ++k) sum += bmat[k, i] * vlag[k] + xpt[k, i] * wnpt[k];
                     if (xopt[i] == sl[i])
                     {
                         gqsq += Math.Pow(Math.Min(ZERO, gopt[i]), 2.0);
@@ -808,7 +805,7 @@ namespace Cureos.Numerics
                     for (var i = 1; i <= Math.Max(npt, nh); ++i)
                     {
                         if (i <= n) gopt[i] = vlag[npt + i];
-                        if (i <= npt) pq[i] = w[npt + i];
+                        if (i <= npt) pq[i] = wnpt[npt + i];
                         if (i <= nh) hq[i] = ZERO;
                         itest = 0;
                     }
@@ -1177,809 +1174,6 @@ namespace Cureos.Numerics
     }
 }
 /*
-      SUBROUTINE BOBYQA (N,NPT,X,XL,XU,RHOBEG,RHOEND,IPRINT,
-     1  MAXFUN,W)
-      IMPLICIT REAL*8 (A-H,O-Z)
-      DIMENSION X(*),XL(*),XU(*),W(*)
-//
-//     This subroutine seeks the least value of a function of many variables,
-//     by applying a trust region method that forms quadratic models by
-//     interpolation. There is usually some freedom in the interpolation
-//     conditions, which is taken up by minimizing the Frobenius norm of
-//     the change to the second derivative of the model, beginning with the
-//     zero matrix. The values of the variables are constrained by upper and
-//     lower bounds. The arguments of the subroutine are as follows.
-//
-//     N must be set to the number of variables and must be at least two.
-//     NPT is the number of interpolation conditions. Its value must be in
-//       the interval [N+2,(N+1)(N+2)/2]. Choices that exceed 2*N+1 are not
-//       recommended.
-//     Initial values of the variables must be set in X(1),X(2),...,X(N). They
-//       will be changed to the values that give the least calculated F.
-//     For I=1,2,...,N, XL[I] and XU[I] must provide the lower and upper
-//       bounds, respectively, on X[I]. The construction of quadratic models
-//       requires XL[I] to be strictly less than XU[I] for each I. Further,
-//       the contribution to a model from changes to the I-th variable is
-//       damaged severely by rounding errors if XU[I]-XL[I] is too small.
-//     RHOBEG and RHOEND must be set to the initial and final values of a trust
-//       region radius, so both must be positive with RHOEND no greater than
-//       RHOBEG. Typically, RHOBEG should be about one tenth of the greatest
-//       expected change to a variable, while RHOEND should indicate the
-//       accuracy that is required in the final values of the variables. An
-//       error return occurs if any of the differences XU[I]-XL[I], I=1,...,N,
-//       is less than 2*RHOBEG.
-//     The value of IPRINT should be set to 0, 1, 2 or 3, which controls the
-//       amount of printing. Specifically, there is no output if IPRINT=0 and
-//       there is output only at the return if IPRINT=1. Otherwise, each new
-//       value of RHO is printed, with the best vector of variables so far and
-//       the corresponding value of the objective function. Further, each new
-//       value of F with its variables are output if IPRINT=3.
-//     MAXFUN must be set to an upper bound on the number of calls of CALFUN.
-//     The array W will be used for working space. Its length must be at least
-//       (NPT+5)*(NPT+N)+3*N*(N+5)/2.
-//
-//     SUBROUTINE CALFUN (N,X,F) has to be provided by the user. It must set
-//     F to the value of the objective function for the current values of the
-//     variables X(1),X(2),...,X(N), which are generated automatically in a
-//     way that satisfies the bounds given in XL and XU.
-//
-//     Return if the value of NPT is unacceptable.
-//
-      NP=N+1
-      if (NPT < N+2 || NPT > ((N+2)*NP)/2) {
-          PRINT 10
-   10     FORMAT (/4X,'Return from BOBYQA because NPT is not in',
-     1      ' the required interval')
-          GO TO 40
-      }
-//
-//     Partition the working space array, so that different parts of it can
-//     be treated separately during the calculation of BOBYQB. The partition
-//     requires the first (NPT+2)*(NPT+N)+3*N*(N+5)/2 elements of W plus the
-//     space that is taken by the last array in the argument list of BOBYQB.
-//
-      NDIM=NPT+N
-      IXB=1
-      IXP=IXB+N
-      IFV=IXP+N*NPT
-      IXO=IFV+NPT
-      IGO=IXO+N
-      IHQ=IGO+N
-      IPQ=IHQ+(N*NP)/2
-      IBMAT=IPQ+NPT
-      IZMAT=IBMAT+NDIM*N
-      ISL=IZMAT+NPT*(NPT-NP)
-      ISU=ISL+N
-      IXN=ISU+N
-      IXA=IXN+N
-      ID=IXA+N
-      IVL=ID+N
-      IW=IVL+NDIM
-//
-//     Return if there is insufficient space between the bounds. Modify the
-//     initial X if necessary in order to avoid conflicts between the bounds
-//     and the construction of the first quadratic model. The lower and upper
-//     bounds on moves from the updated X are set now, in the ISL and ISU
-//     partitions of W, in order to provide useful and exact information about
-//     components of X that become within distance RHOBEG from their bounds.
-//
-      ZERO=0.0D0
-      DO 30 J=1,N
-      TEMP=XU[J]-XL[J]
-      if (TEMP < RHOBEG+RHOBEG) {
-          PRINT 20
-   20     FORMAT (/4X,'Return from BOBYQA because one of the',
-     1      ' differences XU[I]-XL[I]'/6X,' is less than 2*RHOBEG.')
-          GO TO 40
-      }
-      JSL=ISL+J-1
-      JSU=JSL+N
-      W(JSL)=XL[J]-X[J]
-      W(JSU)=XU[J]-X[J]
-      if (W(JSL) >= -RHOBEG) {
-          if (W(JSL) >= ZERO) {
-              X[J]=XL[J]
-              W(JSL)=ZERO
-              W(JSU)=TEMP
-          ELSE
-              X[J]=XL[J]+RHOBEG
-              W(JSL)=-RHOBEG
-              W(JSU)=Math.Max(XU[J]-X[J],RHOBEG)
-          }
-      ELSE if (W(JSU) <= RHOBEG) {
-          if (W(JSU) <= ZERO) {
-              X[J]=XU[J]
-              W(JSL)=-TEMP
-              W(JSU)=ZERO
-          ELSE
-              X[J]=XU[J]-RHOBEG
-              W(JSL)=Math.Min(XL[J]-X[J],-RHOBEG)
-              W(JSU)=RHOBEG
-          }
-      }
-   30 CONTINUE
-//
-//     Make the call of BOBYQB.
-//
-      CALL BOBYQB (N,NPT,X,XL,XU,RHOBEG,RHOEND,IPRINT,MAXFUN,W(IXB),
-     1  W(IXP),W(IFV),W(IXO),W(IGO),W(IHQ),W(IPQ),W(IBMAT),W(IZMAT),
-     2  NDIM,W(ISL),W(ISU),W(IXN),W(IXA),W(ID),W(IVL),W(IW))
-   40 RETURN
-      END
-
-
-      SUBROUTINE BOBYQB (N,NPT,X,XL,XU,RHOBEG,RHOEND,IPRINT,
-     1  MAXFUN,XBASE,XPT,FVAL,XOPT,GOPT,HQ,PQ,BMAT,ZMAT,NDIM,
-     2  SL,SU,XNEW,XALT,D,VLAG,W)
-      IMPLICIT REAL*8 (A-H,O-Z)
-      DIMENSION X(*),XL(*),XU(*),XBASE(*),XPT(NPT,*),FVAL(*),
-     1  XOPT(*),GOPT(*),HQ(*),PQ(*),BMAT(NDIM,*),ZMAT(NPT,*),
-     2  SL(*),SU(*),XNEW(*),XALT(*),D(*),VLAG(*),W(*)
-//
-//     The arguments N, NPT, X, XL, XU, RHOBEG, RHOEND, IPRINT and MAXFUN
-//       are identical to the corresponding arguments in SUBROUTINE BOBYQA.
-//     XBASE holds a shift of origin that should reduce the contributions
-//       from rounding errors to values of the model and Lagrange functions.
-//     XPT is a two-dimensional array that holds the coordinates of the
-//       interpolation points relative to XBASE.
-//     FVAL holds the values of F at the interpolation points.
-//     XOPT is set to the displacement from XBASE of the trust region centre.
-//     GOPT holds the gradient of the quadratic model at XBASE+XOPT.
-//     HQ holds the explicit second derivatives of the quadratic model.
-//     PQ contains the parameters of the implicit second derivatives of the
-//       quadratic model.
-//     BMAT holds the last N columns of H.
-//     ZMAT holds the factorization of the leading NPT by NPT submatrix of H,
-//       this factorization being ZMAT times ZMAT^T, which provides both the
-//       correct rank and positive semi-definiteness.
-//     NDIM is the first dimension of BMAT and has the value NPT+N.
-//     SL and SU hold the differences XL-XBASE and XU-XBASE, respectively.
-//       All the components of every XOPT are going to satisfy the bounds
-//       SL[I] .LEQ. XOPT[I] .LEQ. SU[I], with appropriate equalities when
-//       XOPT is on a constraint boundary.
-//     XNEW is chosen by SUBROUTINE TRSBOX or ALTMOV. Usually XBASE+XNEW is the
-//       vector of variables for the next call of CALFUN. XNEW also satisfies
-//       the SL and SU constraints in the way that has just been mentioned.
-//     XALT is an alternative to XNEW, chosen by ALTMOV, that may replace XNEW
-//       in order to increase the denominator in the updating of UPDATE.
-//     D is reserved for a trial step from XOPT, which is usually XNEW-XOPT.
-//     VLAG contains the values of the Lagrange functions at a new point X.
-//       They are part of a product that requires VLAG to be of length NDIM.
-//     W is a one-dimensional array that is used for working space. Its length
-//       must be at least 3*NDIM = 3*(NPT+N).
-//
-//     Set some constants.
-//
-      HALF=0.5D0
-      ONE=1.0D0
-      TEN=10.0D0
-      TENTH=0.1D0
-      TWO=2.0D0
-      ZERO=0.0D0
-      NP=N+1
-      NPTM=NPT-NP
-      NH=(N*NP)/2
-//
-//     The call of PRELIM sets the elements of XBASE, XPT, FVAL, GOPT, HQ, PQ,
-//     BMAT and ZMAT for the first iteration, with the corresponding values of
-//     of NF and KOPT, which are the number of calls of CALFUN so far and the
-//     index of the interpolation point at the trust region centre. Then the
-//     initial XOPT is set too. The branch to label 720 occurs if MAXFUN is
-//     less than NPT. GOPT will be updated if KOPT is different from KBASE.
-//
-      CALL PRELIM (N,NPT,X,XL,XU,RHOBEG,IPRINT,MAXFUN,XBASE,XPT,
-     1  FVAL,GOPT,HQ,PQ,BMAT,ZMAT,NDIM,SL,SU,NF,KOPT)
-      XOPTSQ=ZERO
-      DO 10 I=1,N
-      XOPT[I]=XPT(KOPT,I)
-   10 XOPTSQ=XOPTSQ+XOPT[I]**2
-      FSAVE=FVAL(1)
-      if (NF < NPT) {
-          if (IPRINT > 0) PRINT 390
-          goto 720
-      }
-      KBASE=1
-//
-//     Complete the settings that are required for the iterative procedure.
-//
-      RHO=RHOBEG
-      DELTA=RHO
-      NRESC=NF
-      NTRITS=0
-      DIFFA=ZERO
-      DIFFB=ZERO
-      ITEST=0
-      NFSAV=NF
-//
-//     Update GOPT if necessary before the first iteration and after each
-//     call of RESCUE that makes a call of CALFUN.
-//
-   20 if (KOPT != KBASE) {
-          IH=0
-          DO 30 J=1,N
-          DO 30 I=1,J
-          IH=IH+1
-          if (I < J) GOPT[J]=GOPT[J]+HQ(IH)*XOPT[I]
-   30     GOPT[I]=GOPT[I]+HQ(IH)*XOPT[J]
-          if (NF > NPT) {
-              DO 50 K=1,NPT
-              TEMP=ZERO
-              DO 40 J=1,N
-   40         TEMP=TEMP+XPT(K,J)*XOPT[J]
-              TEMP=PQ[K]*TEMP
-              DO 50 I=1,N
-   50         GOPT[I]=GOPT[I]+TEMP*XPT(K,I)
-          }
-      }
-//
-//     Generate the next point in the trust region that provides a small value
-//     of the quadratic model subject to the constraints on the variables.
-//     The integer NTRITS is set to the number "trust region" iterations that
-//     have occurred since the last "alternative" iteration. If the length
-//     of XNEW-XOPT is less than HALF*RHO, however, then there is a branch to
-//     label 650 or 680 with NTRITS=-1, instead of calculating F at XNEW.
-//
-   60 CALL TRSBOX (N,NPT,XPT,XOPT,GOPT,HQ,PQ,SL,SU,DELTA,XNEW,D,
-     1  W,W(NP),W(NP+N),W(NP+2*N),W(NP+3*N),DSQ,CRVMIN)
-      DNORM=Math.Min(DELTA,Math.Sqrt(DSQ))
-      if (DNORM < HALF*RHO) {
-          NTRITS=-1
-          DISTSQ=(TEN*RHO)**2
-          if (NF <= NFSAV+2) goto 650
-//
-//     The following choice between labels 650 and 680 depends on whether or
-//     not our work with the current RHO seems to be complete. Either RHO is
-//     decreased or termination occurs if the errors in the quadratic model at
-//     the last three interpolation points compare favourably with predictions
-//     of likely improvements to the model within distance HALF*RHO of XOPT.
-//
-          ERRBIG=Math.Max(DIFFA,DIFFB,DIFFC)
-          FRHOSQ=0.125D0*RHO*RHO
-          if (CRVMIN > ZERO && ERRBIG > FRHOSQ*CRVMIN)
-     1       goto 650
-          BDTOL=ERRBIG/RHO
-          DO 80 J=1,N
-          BDTEST=BDTOL
-          if (XNEW[J] == SL[J]) BDTEST=W[J]
-          if (XNEW[J] == SU[J]) BDTEST=-W[J]
-          if (BDTEST < BDTOL) {
-              CURV=HQ((J+J*J)/2)
-              DO 70 K=1,NPT
-   70         CURV=CURV+PQ[K]*XPT(K,J)**2
-              BDTEST=BDTEST+HALF*CURV*RHO
-              if (BDTEST < BDTOL) goto 650
-          }
-   80     CONTINUE
-          goto 680
-      }
-      NTRITS=NTRITS+1
-//
-//     Severe cancellation is likely to occur if XOPT is too far from XBASE.
-//     If the following test holds, then XBASE is shifted so that XOPT becomes
-//     zero. The appropriate changes are made to BMAT and to the second
-//     derivatives of the current model, beginning with the changes to BMAT
-//     that do not depend on ZMAT. VLAG is used temporarily for working space.
-//
-   90 if (DSQ <= 1.0D-3*XOPTSQ) {
-          FRACSQ=0.25D0*XOPTSQ
-          SUMPQ=ZERO
-          DO 110 K=1,NPT
-          SUMPQ=SUMPQ+PQ[K]
-          SUM=-HALF*XOPTSQ
-          DO 100 I=1,N
-  100     SUM=SUM+XPT(K,I)*XOPT[I]
-          W(NPT+K)=SUM
-          TEMP=FRACSQ-HALF*SUM
-          DO 110 I=1,N
-          W[I]=BMAT(K,I)
-          VLAG[I]=SUM*XPT(K,I)+TEMP*XOPT[I]
-          IP=NPT+I
-          DO 110 J=1,I
-  110     BMAT(IP,J)=BMAT(IP,J)+W[I]*VLAG[J]+VLAG[I]*W[J]
-//
-//     Then the revisions of BMAT that depend on ZMAT are calculated.
-//
-          DO 150 JJ=1,NPTM
-          SUMZ=ZERO
-          SUMW=ZERO
-          DO 120 K=1,NPT
-          SUMZ=SUMZ+ZMAT(K,JJ)
-          VLAG[K]=W(NPT+K)*ZMAT(K,JJ)
-  120     SUMW=SUMW+VLAG[K]
-          DO 140 J=1,N
-          SUM=(FRACSQ*SUMZ-HALF*SUMW)*XOPT[J]
-          DO 130 K=1,NPT
-  130     SUM=SUM+VLAG[K]*XPT(K,J)
-          W[J]=SUM
-          DO 140 K=1,NPT
-  140     BMAT(K,J)=BMAT(K,J)+SUM*ZMAT(K,JJ)
-          DO 150 I=1,N
-          IP=I+NPT
-          TEMP=W[I]
-          DO 150 J=1,I
-  150     BMAT(IP,J)=BMAT(IP,J)+TEMP*W[J]
-//
-//     The following instructions complete the shift, including the changes
-//     to the second derivative parameters of the quadratic model.
-//
-          IH=0
-          DO 170 J=1,N
-          W[J]=-HALF*SUMPQ*XOPT[J]
-          DO 160 K=1,NPT
-          W[J]=W[J]+PQ[K]*XPT(K,J)
-  160     XPT(K,J)=XPT(K,J)-XOPT[J]
-          DO 170 I=1,J
-          IH=IH+1
-          HQ(IH)=HQ(IH)+W[I]*XOPT[J]+XOPT[I]*W[J]
-  170     BMAT(NPT+I,J)=BMAT(NPT+J,I)
-          DO 180 I=1,N
-          XBASE[I]=XBASE[I]+XOPT[I]
-          XNEW[I]=XNEW[I]-XOPT[I]
-          SL[I]=SL[I]-XOPT[I]
-          SU[I]=SU[I]-XOPT[I]
-  180     XOPT[I]=ZERO
-          XOPTSQ=ZERO
-      }
-      if (NTRITS == 0) goto 210
-      goto 230
-//
-//     XBASE is also moved to XOPT by a call of RESCUE. This calculation is
-//     more expensive than the previous shift, because new matrices BMAT and
-//     ZMAT are generated from scratch, which may include the replacement of
-//     interpolation points whose positions seem to be causing near linear
-//     dependence in the interpolation conditions. Therefore RESCUE is called
-//     only if rounding errors have reduced by at least a factor of two the
-//     denominator of the formula for updating the H matrix. It provides a
-//     useful safeguard, but is not invoked in most applications of BOBYQA.
-//
-  190 NFSAV=NF
-      KBASE=KOPT
-      CALL RESCUE (N,NPT,XL,XU,IPRINT,MAXFUN,XBASE,XPT,FVAL,
-     1  XOPT,GOPT,HQ,PQ,BMAT,ZMAT,NDIM,SL,SU,NF,DELTA,KOPT,
-     2  VLAG,W,W(N+NP),W(NDIM+NP))
-//
-//     XOPT is updated now in case the branch below to label 720 is taken.
-//     Any updating of GOPT occurs after the branch below to label 20, which
-//     leads to a trust region iteration as does the branch to label 60.
-//
-      XOPTSQ=ZERO
-      if (KOPT != KBASE) {
-          DO 200 I=1,N
-          XOPT[I]=XPT(KOPT,I)
-  200     XOPTSQ=XOPTSQ+XOPT[I]**2
-      }
-      if (NF < 0) {
-          NF=MAXFUN
-          if (IPRINT > 0) PRINT 390
-          goto 720
-      }
-      NRESC=NF
-      if (NFSAV < NF) {
-          NFSAV=NF
-          goto 20
-      }
-      if (NTRITS > 0) goto 60
-//
-//     Pick two alternative vectors of variables, relative to XBASE, that
-//     are suitable as new positions of the KNEW-th interpolation point.
-//     Firstly, XNEW is set to the point on a line through XOPT and another
-//     interpolation point that minimizes the predicted value of the next
-//     denominator, subject to ||XNEW - XOPT|| .LEQ. ADELT and to the SL
-//     and SU bounds. Secondly, XALT is set to the best feasible point on
-//     a constrained version of the Cauchy step of the KNEW-th Lagrange
-//     function, the corresponding value of the square of this function
-//     being returned in CAUCHY. The choice between these alternatives is
-//     going to be made when the denominator is calculated.
-//
-  210 CALL ALTMOV (N,NPT,XPT,XOPT,BMAT,ZMAT,NDIM,SL,SU,KOPT,
-     1  KNEW,ADELT,XNEW,XALT,ALPHA,CAUCHY,W,W(NP),W(NDIM+1))
-      DO 220 I=1,N
-  220 D[I]=XNEW[I]-XOPT[I]
-//
-//     Calculate VLAG and BETA for the current choice of D. The scalar
-//     product of D with XPT(K,.) is going to be held in W(NPT+K) for
-//     use when VQUAD is calculated.
-//
-  230 DO 250 K=1,NPT
-      SUMA=ZERO
-      SUMB=ZERO
-      SUM=ZERO
-      DO 240 J=1,N
-      SUMA=SUMA+XPT(K,J)*D[J]
-      SUMB=SUMB+XPT(K,J)*XOPT[J]
-  240 SUM=SUM+BMAT(K,J)*D[J]
-      W[K]=SUMA*(HALF*SUMA+SUMB)
-      VLAG[K]=SUM
-  250 W(NPT+K)=SUMA
-      BETA=ZERO
-      DO 270 JJ=1,NPTM
-      SUM=ZERO
-      DO 260 K=1,NPT
-  260 SUM=SUM+ZMAT(K,JJ)*W[K]
-      BETA=BETA-SUM*SUM
-      DO 270 K=1,NPT
-  270 VLAG[K]=VLAG[K]+SUM*ZMAT(K,JJ)
-      DSQ=ZERO
-      BSUM=ZERO
-      DX=ZERO
-      DO 300 J=1,N
-      DSQ=DSQ+D[J]**2
-      SUM=ZERO
-      DO 280 K=1,NPT
-  280 SUM=SUM+W[K]*BMAT(K,J)
-      BSUM=BSUM+SUM*D[J]
-      JP=NPT+J
-      DO 290 I=1,N
-  290 SUM=SUM+BMAT(JP,I)*D[I]
-      VLAG(JP)=SUM
-      BSUM=BSUM+SUM*D[J]
-  300 DX=DX+D[J]*XOPT[J]
-      BETA=DX*DX+DSQ*(XOPTSQ+DX+DX+HALF*DSQ)+BETA-BSUM
-      VLAG(KOPT)=VLAG(KOPT)+ONE
-//
-//     If NTRITS is zero, the denominator may be increased by replacing
-//     the step D of ALTMOV by a Cauchy step. Then RESCUE may be called if
-//     rounding errors have damaged the chosen denominator.
-//
-      if (NTRITS == 0) {
-          DENOM=VLAG(KNEW)**2+ALPHA*BETA
-          if (DENOM < CAUCHY && CAUCHY > ZERO) {
-              DO 310 I=1,N
-              XNEW[I]=XALT[I]
-  310         D[I]=XNEW[I]-XOPT[I]
-              CAUCHY=ZERO
-              GO TO 230
-          }
-          if (DENOM <= HALF*VLAG(KNEW)**2) {
-              if (NF > NRESC) goto 190
-              if (IPRINT > 0) PRINT 320
-  320         FORMAT (/5X,'Return from BOBYQA because of much',
-     1          ' cancellation in a denominator.')
-              goto 720
-          }
-//
-//     Alternatively, if NTRITS is positive, then set KNEW to the index of
-//     the next interpolation point to be deleted to make room for a trust
-//     region step. Again RESCUE may be called if rounding errors have damaged
-//     the chosen denominator, which is the reason for attempting to select
-//     KNEW before calculating the next value of the objective function.
-//
-      ELSE
-          DELSQ=DELTA*DELTA
-          SCADEN=ZERO
-          BIGLSQ=ZERO
-          KNEW=0
-          DO 350 K=1,NPT
-          if (K == KOPT) goto 350
-          HDIAG=ZERO
-          DO 330 JJ=1,NPTM
-  330     HDIAG=HDIAG+ZMAT(K,JJ)**2
-          DEN=BETA*HDIAG+VLAG[K]**2
-          DISTSQ=ZERO
-          DO 340 J=1,N
-  340     DISTSQ=DISTSQ+(XPT(K,J)-XOPT[J])**2
-          TEMP=Math.Max(ONE,(DISTSQ/DELSQ)**2)
-          if (TEMP*DEN > SCADEN) {
-              SCADEN=TEMP*DEN
-              KNEW=K
-              DENOM=DEN
-          }
-          BIGLSQ=Math.Max(BIGLSQ,TEMP*VLAG[K]**2)
-  350     CONTINUE
-          if (SCADEN <= HALF*BIGLSQ) {
-              if (NF > NRESC) goto 190
-              if (IPRINT > 0) PRINT 320
-              goto 720
-          }
-      }
-//
-//     Put the variables for the next calculation of the objective function
-//       in XNEW, with any adjustments for the bounds.
-//
-//
-//     Calculate the value of the objective function at XBASE+XNEW, unless
-//       the limit on the number of calculations of F has been reached.
-//
-  360 DO 380 I=1,N
-      X[I]=Math.Min(Math.Max(XL[I],XBASE[I]+XNEW[I]),XU[I])
-      if (XNEW[I] == SL[I]) X[I]=XL[I]
-      if (XNEW[I] == SU[I]) X[I]=XU[I]
-  380 CONTINUE
-      if (NF >= MAXFUN) {
-          if (IPRINT > 0) PRINT 390
-  390     FORMAT (/4X,'Return from BOBYQA because CALFUN has been',
-     1      ' called MAXFUN times.')
-          goto 720
-      }
-      NF=NF+1
-      CALL CALFUN (N,X,F)
-      if (IPRINT == 3) {
-          PRINT 400, NF,F,(X[I],I=1,N)
-  400      FORMAT (/4X,'Function number',I6,'    F =',1PD18.10,
-     1       '    The corresponding X is:'/(2X,5D15.6))
-      }
-      if (NTRITS == -1) {
-          FSAVE=F
-          goto 720
-      }
-//
-//     Use the quadratic model to predict the change in F due to the step D,
-//       and set DIFF to the error of this prediction.
-//
-      FOPT=FVAL(KOPT)
-      VQUAD=ZERO
-      IH=0
-      DO 410 J=1,N
-      VQUAD=VQUAD+D[J]*GOPT[J]
-      DO 410 I=1,J
-      IH=IH+1
-      TEMP=D[I]*D[J]
-      if (I == J) TEMP=HALF*TEMP
-  410 VQUAD=VQUAD+HQ(IH)*TEMP
-      DO 420 K=1,NPT
-  420 VQUAD=VQUAD+HALF*PQ[K]*W(NPT+K)**2
-      DIFF=F-FOPT-VQUAD
-      DIFFC=DIFFB
-      DIFFB=DIFFA
-      DIFFA=DABS(DIFF)
-      if (DNORM > RHO) NFSAV=NF
-//
-//     Pick the next value of DELTA after a trust region step.
-//
-      if (NTRITS > 0) {
-          if (VQUAD >= ZERO) {
-              if (IPRINT > 0) PRINT 430
-  430         FORMAT (/4X,'Return from BOBYQA because a trust',
-     1          ' region step has failed to reduce Q.')
-              goto 720
-          }
-          RATIO=(F-FOPT)/VQUAD
-          if (RATIO <= TENTH) {
-              DELTA=Math.Min(HALF*DELTA,DNORM)
-          ELSE if (RATIO. LE. 0.7D0) {
-              DELTA=Math.Max(HALF*DELTA,DNORM)
-          ELSE
-              DELTA=Math.Max(HALF*DELTA,DNORM+DNORM)
-          }
-          if (DELTA <= 1.5D0*RHO) DELTA=RHO
-//
-//     Recalculate KNEW and DENOM if the new F is less than FOPT.
-//
-          if (F < FOPT) {
-              KSAV=KNEW
-              DENSAV=DENOM
-              DELSQ=DELTA*DELTA
-              SCADEN=ZERO
-              BIGLSQ=ZERO
-              KNEW=0
-              DO 460 K=1,NPT
-              HDIAG=ZERO
-              DO 440 JJ=1,NPTM
-  440         HDIAG=HDIAG+ZMAT(K,JJ)**2
-              DEN=BETA*HDIAG+VLAG[K]**2
-              DISTSQ=ZERO
-              DO 450 J=1,N
-  450         DISTSQ=DISTSQ+(XPT(K,J)-XNEW[J])**2
-              TEMP=Math.Max(ONE,(DISTSQ/DELSQ)**2)
-              if (TEMP*DEN > SCADEN) {
-                  SCADEN=TEMP*DEN
-                  KNEW=K
-                  DENOM=DEN
-              }
-  460         BIGLSQ=Math.Max(BIGLSQ,TEMP*VLAG[K]**2)
-              if (SCADEN <= HALF*BIGLSQ) {
-                  KNEW=KSAV
-                  DENOM=DENSAV
-              }
-          }
-      }
-//
-//     Update BMAT and ZMAT, so that the KNEW-th interpolation point can be
-//     moved. Also update the second derivative terms of the model.
-//
-      CALL UPDATE (N,NPT,BMAT,ZMAT,NDIM,VLAG,BETA,DENOM,KNEW,W)
-      IH=0
-      PQOLD=PQ(KNEW)
-      PQ(KNEW)=ZERO
-      DO 470 I=1,N
-      TEMP=PQOLD*XPT(KNEW,I)
-      DO 470 J=1,I
-      IH=IH+1
-  470 HQ(IH)=HQ(IH)+TEMP*XPT(KNEW,J)
-      DO 480 JJ=1,NPTM
-      TEMP=DIFF*ZMAT(KNEW,JJ)
-      DO 480 K=1,NPT
-  480 PQ[K]=PQ[K]+TEMP*ZMAT(K,JJ)
-//
-//     Include the new interpolation point, and make the changes to GOPT at
-//     the old XOPT that are caused by the updating of the quadratic model.
-//
-      FVAL(KNEW)=F
-      DO 490 I=1,N
-      XPT(KNEW,I)=XNEW[I]
-  490 W[I]=BMAT(KNEW,I)
-      DO 520 K=1,NPT
-      SUMA=ZERO
-      DO 500 JJ=1,NPTM
-  500 SUMA=SUMA+ZMAT(KNEW,JJ)*ZMAT(K,JJ)
-      SUMB=ZERO
-      DO 510 J=1,N
-  510 SUMB=SUMB+XPT(K,J)*XOPT[J]
-      TEMP=SUMA*SUMB
-      DO 520 I=1,N
-  520 W[I]=W[I]+TEMP*XPT(K,I)
-      DO 530 I=1,N
-  530 GOPT[I]=GOPT[I]+DIFF*W[I]
-//
-//     Update XOPT, GOPT and KOPT if the new calculated F is less than FOPT.
-//
-      if (F < FOPT) {
-          KOPT=KNEW
-          XOPTSQ=ZERO
-          IH=0
-          DO 540 J=1,N
-          XOPT[J]=XNEW[J]
-          XOPTSQ=XOPTSQ+XOPT[J]**2
-          DO 540 I=1,J
-          IH=IH+1
-          if (I < J) GOPT[J]=GOPT[J]+HQ(IH)*D[I]
-  540     GOPT[I]=GOPT[I]+HQ(IH)*D[J]
-          DO 560 K=1,NPT
-          TEMP=ZERO
-          DO 550 J=1,N
-  550     TEMP=TEMP+XPT(K,J)*D[J]
-          TEMP=PQ[K]*TEMP
-          DO 560 I=1,N
-  560     GOPT[I]=GOPT[I]+TEMP*XPT(K,I)
-      }
-//
-//     Calculate the parameters of the least Frobenius norm interpolant to
-//     the current data, the gradient of this interpolant at XOPT being put
-//     into VLAG(NPT+I), I=1,2,...,N.
-//
-      if (NTRITS > 0) {
-          DO 570 K=1,NPT
-          VLAG[K]=FVAL[K]-FVAL(KOPT)
-  570     W[K]=ZERO
-          DO 590 J=1,NPTM
-          SUM=ZERO
-          DO 580 K=1,NPT
-  580     SUM=SUM+ZMAT(K,J)*VLAG[K]
-          DO 590 K=1,NPT
-  590     W[K]=W[K]+SUM*ZMAT(K,J)
-          DO 610 K=1,NPT
-          SUM=ZERO
-          DO 600 J=1,N
-  600     SUM=SUM+XPT(K,J)*XOPT[J]
-          W(K+NPT)=W[K]
-  610     W[K]=SUM*W[K]
-          GQSQ=ZERO
-          GISQ=ZERO
-          DO 630 I=1,N
-          SUM=ZERO
-          DO 620 K=1,NPT
-  620     SUM=SUM+BMAT(K,I)*VLAG[K]+XPT(K,I)*W[K]
-          if (XOPT[I] == SL[I]) {
-              GQSQ=GQSQ+Math.Min(ZERO,GOPT[I])**2
-              GISQ=GISQ+Math.Min(ZERO,SUM)**2
-          ELSE if (XOPT[I] == SU[I]) {
-              GQSQ=GQSQ+Math.Max(ZERO,GOPT[I])**2
-              GISQ=GISQ+Math.Max(ZERO,SUM)**2
-          ELSE
-              GQSQ=GQSQ+GOPT[I]**2
-              GISQ=GISQ+SUM*SUM
-          }
-  630     VLAG(NPT+I)=SUM
-//
-//     Test whether to replace the new quadratic model by the least Frobenius
-//     norm interpolant, making the replacement if the test is satisfied.
-//
-          ITEST=ITEST+1
-          if (GQSQ < TEN*GISQ) ITEST=0
-          if (ITEST >= 3) {
-              DO 640 I=1,MAX0(NPT,NH)
-              if (I <= N) GOPT[I]=VLAG(NPT+I)
-              if (I <= NPT) PQ[I]=W(NPT+I)
-              if (I <= NH) HQ[I]=ZERO
-              ITEST=0
-  640         CONTINUE
-          }
-      }
-//
-//     If a trust region step has provided a sufficient decrease in F, then
-//     branch for another trust region calculation. The case NTRITS=0 occurs
-//     when the new interpolation point was reached by an alternative step.
-//
-      if (NTRITS == 0) goto 60
-      if (F <= FOPT+TENTH*VQUAD) goto 60
-//
-//     Alternatively, find out if the interpolation points are close enough
-//       to the best point so far.
-//
-      DISTSQ=Math.Max((TWO*DELTA)**2,(TEN*RHO)**2)
-  650 KNEW=0
-      DO 670 K=1,NPT
-      SUM=ZERO
-      DO 660 J=1,N
-  660 SUM=SUM+(XPT(K,J)-XOPT[J])**2
-      if (SUM > DISTSQ) {
-          KNEW=K
-          DISTSQ=SUM
-      }
-  670 CONTINUE
-//
-//     If KNEW is positive, then ALTMOV finds alternative new positions for
-//     the KNEW-th interpolation point within distance ADELT of XOPT. It is
-//     reached via label 90. Otherwise, there is a branch to label 60 for
-//     another trust region iteration, unless the calculations with the
-//     current RHO are complete.
-//
-      if (KNEW > 0) {
-          DIST=Math.Sqrt(DISTSQ)
-          if (NTRITS == -1) {
-              DELTA=Math.Min(TENTH*DELTA,HALF*DIST)
-              if (DELTA <= 1.5D0*RHO) DELTA=RHO
-          }
-          NTRITS=0
-          ADELT=Math.Max(Math.Min(TENTH*DIST,DELTA),RHO)
-          DSQ=ADELT*ADELT
-          goto 90
-      }
-      if (NTRITS == -1) goto 680
-      if (RATIO > ZERO) goto 60
-      if (Math.Max(DELTA,DNORM) > RHO) goto 60
-//
-//     The calculations with the current value of RHO are complete. Pick the
-//       next values of RHO and DELTA.
-//
-  680 if (RHO > RHOEND) {
-          DELTA=HALF*RHO
-          RATIO=RHO/RHOEND
-          if (RATIO <= 16.0D0) {
-              RHO=RHOEND
-          ELSE if (RATIO <= 250.0D0) {
-              RHO=Math.Sqrt(RATIO)*RHOEND
-          ELSE
-              RHO=TENTH*RHO
-          }
-          DELTA=Math.Max(DELTA,RHO)
-          if (IPRINT >= 2) {
-              if (IPRINT >= 3) PRINT 690
-  690         FORMAT (5X)
-              PRINT 700, RHO,NF
-  700         FORMAT (/4X,'New RHO =',1PD11.4,5X,'Number of',
-     1          ' function values =',I6)
-              PRINT 710, FVAL(KOPT),(XBASE[I]+XOPT[I],I=1,N)
-  710         FORMAT (4X,'Least value of F =',1PD23.15,9X,
-     1          'The corresponding X is:'/(2X,5D15.6))
-          }
-          NTRITS=0
-          NFSAV=NF
-          goto 60
-      }
-//
-//     Return from the calculation, after another Newton-Raphson step, if
-//       it is too short to have been tried before.
-//
-      if (NTRITS == -1) goto 360
-  720 if (FVAL(KOPT) <= FSAVE) {
-          DO 730 I=1,N
-          X[I]=Math.Min(Math.Max(XL[I],XBASE[I]+XOPT[I]),XU[I])
-          if (XOPT[I] == SL[I]) X[I]=XL[I]
-          if (XOPT[I] == SU[I]) X[I]=XU[I]
-  730     CONTINUE
-          F=FVAL(KOPT)
-      }
-      if (IPRINT >= 1) {
-          PRINT 740, NF
-  740     FORMAT (/4X,'At the return from BOBYQA',5X,
-     1      'Number of function values =',I6)
-          PRINT 710, F,(X[I],I=1,N)
-      }
-      RETURN
-      END
-
-
       SUBROUTINE ALTMOV (N,NPT,XPT,XOPT,BMAT,ZMAT,NDIM,SL,SU,KOPT,
      1  KNEW,ADELT,XNEW,XALT,ALPHA,CAUCHY,GLAG,HCOL,W)
       IMPLICIT REAL*8 (A-H,O-Z)
