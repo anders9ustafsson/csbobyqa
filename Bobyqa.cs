@@ -192,7 +192,7 @@ namespace Cureos.Numerics
             var D = new double[1 + N];
             var VLAG = new double[1 + NDIM];
 
-            double F, DIFFC, DISTSQ;
+            double F, DIFFC, DISTSQ, RATIO;
 
             //     The call of PRELIM sets the elements of XBASE, XPT, FVAL, GOPT, HQ, PQ,
             //     BMAT and ZMAT for the first iteration, with the corresponding values of
@@ -641,7 +641,7 @@ namespace Cureos.Numerics
                         Console.WriteLine(LF + "Return from BOBYQA because a trust region step has failed to reduce Q.");
                     goto L_720;
                 }
-                var RATIO = (F - FOPT) / VQUAD;
+                RATIO = (F - FOPT) / VQUAD;
                 if (RATIO <= TENTH)
                 {
                     DELTA = Math.Min(HALF * DELTA, DNORM);
@@ -730,8 +730,178 @@ namespace Cureos.Numerics
             }
             for (var i = 1; i <= N; ++i) GOPT[i] += DIFF * W[i];
 
+            //     Update XOPT, GOPT and KOPT if the new calculated F is less than FOPT.
 
-            // TODO Place BOBYQB code above this line!!!
+            if (F < FOPT)
+            {
+                KOPT = KNEW;
+                XOPTSQ = ZERO;
+                var ih = 0;
+                for (var j = 1; j <= N; ++j)
+                {
+                    XOPT[j] = XNEW[j];
+                    XOPTSQ += XOPT[j] * XOPT[j];
+                    for (var i = 1; i <= j; ++i)
+                    {
+                        ++ih;
+                        if (i < j) GOPT[j] += +HQ[ih] * D[i];
+                        GOPT[i] += HQ[ih] * D[j];
+                    }
+                }
+                for (var k = 1; k <= NPT; ++k)
+                {
+                    var temp = ZERO;
+                    for (var j = 1; j <= N; ++j) temp += XPT[k, j] * D[j];
+                    temp *= PQ[k];
+                    for (var i = 1; i <= N; ++i) GOPT[i] += temp * XPT[k, i];
+                }
+            }
+
+            //     Calculate the parameters of the least Frobenius norm interpolant to
+            //     the current data, the gradient of this interpolant at XOPT being put
+            //     into VLAG(NPT+I), I=1,2,...,N.
+
+            if (NTRITS > 0)
+            {
+                for (var k = 1; k <= NPT; ++k)
+                {
+                    VLAG[k] = FVAL[k] - FVAL[KOPT];
+                    W[k] = ZERO;
+                }
+                for (var J = 1; J <= NPTM; ++J)
+                {
+                    var sum = ZERO;
+                    for (var k = 1; k <= NPT; ++k) sum += ZMAT[k, J] * VLAG[k];
+                    for (var k = 1; k <= NPT; ++k) W[k] = W[k] + sum * ZMAT[k, J];
+                }
+                for (var k = 1; k <= NPT; ++k)
+                {
+                    var sum = ZERO;
+                    for (var j = 1; j <= N; ++j) sum += XPT[k, j] * XOPT[j];
+                    W[k + NPT] = W[k];
+                    W[k] *= sum;
+                }
+                var GQSQ = ZERO;
+                var GISQ = ZERO;
+                for (var i = 1; i <= N; ++i)
+                {
+                    var SUM = ZERO;
+                    for (var k = 1; k <= NPT; ++k) SUM += BMAT[k, i] * VLAG[k] + XPT[k, i] * W[k];
+                    if (XOPT[i] == SL[i])
+                    {
+                        GQSQ += Math.Pow(Math.Min(ZERO, GOPT[i]), 2.0);
+                        GISQ += Math.Pow(Math.Min(ZERO, SUM), 2.0);
+                    }
+                    else if (XOPT[i] == SU[i])
+                    {
+                        GQSQ += Math.Pow(Math.Max(ZERO, GOPT[i]), 2.0);
+                        GISQ += Math.Pow(Math.Max(ZERO, SUM), 2.0);
+                    }
+                    else
+                    {
+                        GQSQ += GOPT[i] * GOPT[i];
+                        GISQ += SUM * SUM;
+                    }
+                    VLAG[NPT + i] = SUM;
+                }
+
+                //     Test whether to replace the new quadratic model by the least Frobenius
+                //     norm interpolant, making the replacement if the test is satisfied.
+
+                ++ITEST;
+                if (GQSQ < TEN * GISQ) ITEST = 0;
+                if (ITEST >= 3)
+                {
+                    for (var i = 1; i <= Math.Max(NPT, NH); ++i)
+                    {
+                        if (i <= N) GOPT[i] = VLAG[NPT + i];
+                        if (i <= NPT) PQ[i] = W[NPT + i];
+                        if (i <= NH) HQ[i] = ZERO;
+                        ITEST = 0;
+                    }
+                }
+            }
+
+//     If a trust region step has provided a sufficient decrease in F, then
+//     branch for another trust region calculation. The case NTRITS=0 occurs
+//     when the new interpolation point was reached by an alternative step.
+
+            if (NTRITS == 0 || F <= FOPT + TENTH * VQUAD) goto L_60;
+
+//     Alternatively, find out if the interpolation points are close enough
+//       to the best point so far.
+
+            DISTSQ = Math.Max(TWO * TWO * DELTA * DELTA, TEN * TEN * RHO * RHO);
+
+            L_650:
+
+            KNEW = 0;
+            for (var k = 1; k <= NPT; ++k)
+            {
+                var SUM = ZERO;
+                for (var j = 1; j <= N; ++j) SUM += Math.Pow(XPT[k, j] - XOPT[j], 2.0);
+                if (SUM > DISTSQ)
+                {
+                    KNEW = k;
+                    DISTSQ = SUM;
+                }
+            }
+
+            //     If KNEW is positive, then ALTMOV finds alternative new positions for
+            //     the KNEW-th interpolation point within distance ADELT of XOPT. It is
+            //     reached via label 90. Otherwise, there is a branch to label 60 for
+            //     another trust region iteration, unless the calculations with the
+            //     current RHO are complete.
+
+            if (KNEW > 0)
+            {
+                var dist = Math.Sqrt(DISTSQ);
+                if (NTRITS == -1)
+                {
+                    DELTA = Math.Min(TENTH * DELTA, HALF * dist);
+                    if (DELTA <= 1.5 * RHO) DELTA = RHO;
+                }
+                NTRITS = 0;
+                ADELT = Math.Max(Math.Min(TENTH * dist, DELTA), RHO);
+                DSQ = ADELT * ADELT;
+                goto L_90;
+            }
+            if (NTRITS == -1) goto L_680;
+            if (RATIO > ZERO || Math.Max(DELTA, DNORM) > RHO) goto L_60;
+//
+//     The calculations with the current value of RHO are complete. Pick the
+//       next values of RHO and DELTA.
+
+            L_680:
+
+            if (RHO > RHOEND)
+            {
+                DELTA = HALF * RHO;
+                RATIO = RHO / RHOEND;
+
+                if (RATIO <= 16.0)
+                    RHO = RHOEND;
+                else if (RATIO <= 250.0)
+                    RHO = Math.Sqrt(RATIO) * RHOEND;
+                else
+                    RHO = TENTH * RHO;
+
+                DELTA = Math.Max(DELTA, RHO);
+                if (IPRINT >= 2)
+                {
+                    var bestX = new double[N];
+                    for (var i = 1; i <= N; ++i) bestX[i] = XBASE[i] + XOPT[i];
+
+                    if (IPRINT >= 3) Console.WriteLine();
+                    Console.WriteLine("New RHO ={0,11:E4}" + LF + "Number of function values ={1:I6}", RHO, NF);
+                    Console.WriteLine(LF + "Least value of F ={0,23:F15}" + LF + "The corresponding X is: {1}",
+                                      FVAL[KOPT], bestX.PART(1, N).FORMAT());
+                }
+                NTRITS = 0;
+                NFSAV = NF;
+                goto L_60;
+            }
+
             //     Return from the calculation, after another Newton-Raphson step, if
             //       it is too short to have been tried before.
 
