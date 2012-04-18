@@ -135,9 +135,9 @@ namespace Cureos.Numerics
             BOBYQB(calfun, n, npt, x, xl, xu, rhobeg, rhoend, iprint, maxfun, ndim, sl, su);
         }
 
-        private static void BOBYQB(Func<int, double[], double> CALFUN, int N, int NPT, double[] X, double[] XL,
-                                   double[] XU, double RHOBEG, double RHOEND, int IPRINT, int MAXFUN, int NDIM,
-                                   double[] SL, double[] SU)
+        private static void BOBYQB(Func<int, double[], double> calfun, int n, int npt, double[] x, double[] xl,
+                                   double[] xu, double rhobeg, double rhoend, int iprint, int maxfun, int ndim,
+                                   double[] sl, double[] su)
         {
             //     The arguments N, NPT, X, XL, XU, RHOBEG, RHOEND, IPRINT and MAXFUN
             //       are identical to the corresponding arguments in SUBROUTINE BOBYQA.
@@ -148,9 +148,9 @@ namespace Cureos.Numerics
 
             //     Set some constants.
 
-            var NP = N + 1;
-            var NPTM = NPT - NP;
-            var NH = (N * NP) / 2;
+            var np = n + 1;
+            var nptm = npt - np;
+            var nh = (n * np) / 2;
 
             //     XBASE holds a shift of origin that should reduce the contributions
             //       from rounding errors to values of the model and Lagrange functions.
@@ -178,21 +178,29 @@ namespace Cureos.Numerics
             //     W is a one-dimensional array that is used for working space. Its length
             //       must be at least 3*NDIM = 3*(NPT+N).
 
-            var XBASE = new double[1 + N];
-            var XPT = new double[1 + NPT,1 + N];
-            var FVAL = new double[1 + NPT];
-            var XOPT = new double[1 + N];
-            var GOPT = new double[1 + N];
-            var HQ = new double[1 + N * NP / 2];
-            var PQ = new double[1 + NPT];
-            var BMAT = new double[1 + NDIM,1 + N];
-            var ZMAT = new double[1 + NPT,1 + NPT - NP];
-            var XNEW = new double[1 + N];
-            var XALT = new double[1 + N];
-            var D = new double[1 + N];
-            var VLAG = new double[1 + NDIM];
+            var xbase = new double[1 + n];
+            var xpt = new double[1 + npt,1 + n];
+            var fval = new double[1 + npt];
+            var xopt = new double[1 + n];
+            var gopt = new double[1 + n];
+            var hq = new double[1 + n * np / 2];
+            var pq = new double[1 + npt];
+            var bmat = new double[1 + ndim,1 + n];
+            var zmat = new double[1 + npt,1 + npt - np];
+            var xnew = new double[1 + n];
+            var xalt = new double[1 + n];
+            var d = new double[1 + n];
+            var vlag = new double[1 + ndim];
 
-            double F, DIFFC, DISTSQ, RATIO;
+            var knew = 0;
+            var adelt = 0.0;
+            var alpha = 0.0;
+            var cauchy = 0.0;
+            var denom = 0.0;
+            var diffc = 0.0;
+            var ratio = 0.0;
+
+            double f, distsq;
 
             //     The call of PRELIM sets the elements of XBASE, XPT, FVAL, GOPT, HQ, PQ,
             //     BMAT and ZMAT for the first iteration, with the corresponding values of
@@ -201,61 +209,60 @@ namespace Cureos.Numerics
             //     initial XOPT is set too. The branch to label 720 occurs if MAXFUN is
             //     less than NPT. GOPT will be updated if KOPT is different from KBASE.
 
-            var NF = 0;
-            var KOPT = 0;
-            PRELIM(N, NPT, X, XL, XU, RHOBEG, IPRINT, MAXFUN, XBASE, XPT, FVAL, GOPT, HQ, PQ, BMAT, ZMAT, NDIM, SL, SU,
-                   ref NF, ref KOPT);
-            var XOPTSQ = ZERO;
-            for (var i = 1; i <= N; ++i)
+            int nf, kopt;
+            PRELIM(n, npt, x, xl, xu, rhobeg, iprint, maxfun, xbase, xpt, fval, gopt, hq, pq, bmat, zmat, ndim, sl, su,
+                   out nf, out kopt);
+
+            var xoptsq = ZERO;
+            for (var i = 1; i <= n; ++i)
             {
-                XOPT[i] = XPT[KOPT, i];
-                XOPTSQ += XOPT[i] * XOPT[i];
+                xopt[i] = xpt[kopt, i];
+                xoptsq += xopt[i] * xopt[i];
             }
-            var FSAVE = FVAL[1];
-            if (NF < NPT)
+            var fsave = fval[1];
+            if (nf < npt)
             {
-                if (IPRINT > 0)
+                if (iprint > 0)
                     Console.WriteLine(L390);
                 goto L_720;
             }
-            var KBASE = 1;
-
+            var kbase = 1;
 
             //     Complete the settings that are required for the iterative procedure.
 
-            var RHO = RHOBEG;
-            var DELTA = RHO;
-            var NRESC = NF;
-            var NTRITS = 0;
-            var DIFFA = ZERO;
-            var DIFFB = ZERO;
-            var ITEST = 0;
-            var NFSAV = NF;
+            var rho = rhobeg;
+            var delta = rho;
+            var nresc = nf;
+            var ntrits = 0;
+            var diffa = ZERO;
+            var diffb = ZERO;
+            var itest = 0;
+            var nfsav = nf;
 
             //     Update GOPT if necessary before the first iteration and after each
             //     call of RESCUE that makes a call of CALFUN.
 
             L_20:
-            if (KOPT != KBASE)
+            if (kopt != kbase)
             {
                 var ih = 0;
-                for (var j = 1; j <= N; ++j)
+                for (var j = 1; j <= n; ++j)
                 {
                     for (var i = 1; i <= j; ++i)
                     {
                         ih = ih + 1;
-                        if (i < j) GOPT[j] += HQ[ih] * XOPT[i];
-                        GOPT[i] += HQ[ih] * XOPT[j];
+                        if (i < j) gopt[j] += hq[ih] * xopt[i];
+                        gopt[i] += hq[ih] * xopt[j];
                     }
                 }
-                if (NF > NPT)
+                if (nf > npt)
                 {
-                    for (var k = 1; k <= NPT; ++k)
+                    for (var k = 1; k <= npt; ++k)
                     {
                         var temp = ZERO;
-                        for (var j = 1; j <= N; ++j) temp += XPT[k, j] * XOPT[j];
-                        temp *= PQ[k];
-                        for (var i = 1; i <= N; ++i) GOPT[i] += temp * XPT[k, i];
+                        for (var j = 1; j <= n; ++j) temp += xpt[k, j] * xopt[j];
+                        temp *= pq[k];
+                        for (var i = 1; i <= n; ++i) gopt[i] += temp * xpt[k, i];
                     }
                 }
             }
@@ -268,46 +275,46 @@ namespace Cureos.Numerics
             //     label 650 or 680 with NTRITS=-1, instead of calculating F at XNEW.
 
             L_60:
+            var gnew = new double[1 + n];
+            double dsq, crvmin;
+            TRSBOX(n, npt, xpt, xopt, gopt, hq, pq, sl, su, delta, xnew, d, gnew, out dsq, out crvmin);
 
-            double DSQ, CRVMIN;
-            var gnew = new double[1 + N];
-            TRSBOX(N, NPT, XPT, XOPT, GOPT, HQ, PQ, SL, SU, DELTA, XNEW, D, gnew, out DSQ, out CRVMIN);
-            var DNORM = Math.Min(DELTA, Math.Sqrt(DSQ));
-            if (DNORM < HALF * RHO)
+            var dnorm = Math.Min(delta, Math.Sqrt(dsq));
+            if (dnorm < HALF * rho)
             {
-                NTRITS = -1;
-                DISTSQ = TEN * TEN * RHO * RHO;
-                if (NF <= NFSAV + 2) goto L_650;
+                ntrits = -1;
+                distsq = TEN * TEN * rho * rho;
+                if (nf <= nfsav + 2) goto L_650;
 
                 //     The following choice between labels 650 and 680 depends on whether or
                 //     not our work with the current RHO seems to be complete. Either RHO is
                 //     decreased or termination occurs if the errors in the quadratic model at
                 //     the last three interpolation points compare favourably with predictions
                 //     of likely improvements to the model within distance HALF*RHO of XOPT.
-                //
-                var errbig = Math.Max(DIFFA, Math.Max(DIFFB, DIFFC));
-                var frhosq = 0.125 * RHO * RHO;
-                if (CRVMIN > ZERO && errbig > frhosq * CRVMIN) goto L_650;
-                var bdtol = errbig / RHO;
-                for (var j = 1; j <= N; ++j)
+
+                var errbig = Math.Max(diffa, Math.Max(diffb, diffc));
+                var frhosq = 0.125 * rho * rho;
+                if (crvmin > ZERO && errbig > frhosq * crvmin) goto L_650;
+                var bdtol = errbig / rho;
+                for (var j = 1; j <= n; ++j)
                 {
                     var bdtest = bdtol;
-                    if (XNEW[j] == SL[j]) bdtest = gnew[j];
-                    if (XNEW[j] == SU[j]) bdtest = -gnew[j];
+                    if (xnew[j] == sl[j]) bdtest = gnew[j];
+                    if (xnew[j] == su[j]) bdtest = -gnew[j];
                     if (bdtest < bdtol)
                     {
-                        var CURV = HQ[(j + j * j) / 2];
-                        for (var k = 1; k <= NPT; ++k)
+                        var CURV = hq[(j + j * j) / 2];
+                        for (var k = 1; k <= npt; ++k)
                         {
-                            CURV = CURV + PQ[k] * XPT[k, j] * XPT[k, j];
+                            CURV = CURV + pq[k] * xpt[k, j] * xpt[k, j];
                         }
-                        bdtest = bdtest + HALF * CURV * RHO;
+                        bdtest = bdtest + HALF * CURV * rho;
                         if (bdtest < bdtol) goto L_650;
                     }
                 }
                 goto L_680;
             }
-            ++NTRITS;
+            ++ntrits;
 
             //     Severe cancellation is likely to occur if XOPT is too far from XBASE.
             //     If the following test holds, then XBASE is shifted so that XOPT becomes
@@ -316,57 +323,56 @@ namespace Cureos.Numerics
             //     that do not depend on ZMAT. VLAG is used temporarily for working space.
 
             L_90:
-
-            if (DSQ <= 1.0E-3 * XOPTSQ)
+            if (dsq <= 1.0E-3 * xoptsq)
             {
-                var nWork = new double[1 + N];
-                var nptWork = new double[1 + NPT];
+                var nWork = new double[1 + n];
+                var nptWork = new double[1 + npt];
 
-                var fracsq = 0.25 * XOPTSQ;
+                var fracsq = 0.25 * xoptsq;
                 var sumpq = ZERO;
-                for (var k = 1; k <= NPT; ++k)
+                for (var k = 1; k <= npt; ++k)
                 {
-                    sumpq += PQ[k];
-                    var sum = -HALF * XOPTSQ;
-                    for (var i = 1; i <= N; ++i) sum += XPT[k, i] * XOPT[i];
+                    sumpq += pq[k];
+                    var sum = -HALF * xoptsq;
+                    for (var i = 1; i <= n; ++i) sum += xpt[k, i] * xopt[i];
                     nptWork[k] = sum;
                     var temp = fracsq - HALF * sum;
-                    for (var i = 1; i <= N; ++i)
+                    for (var i = 1; i <= n; ++i)
                     {
-                        nWork[i] = BMAT[k, i];
-                        VLAG[i] = sum * XPT[k, i] + temp * XOPT[i];
-                        var ip = NPT + i;
-                        for (var j = 1; j <= i; ++j) BMAT[ip, j] += nWork[i] * VLAG[j] + VLAG[i] * nWork[j];
+                        nWork[i] = bmat[k, i];
+                        vlag[i] = sum * xpt[k, i] + temp * xopt[i];
+                        var ip = npt + i;
+                        for (var j = 1; j <= i; ++j) bmat[ip, j] += nWork[i] * vlag[j] + vlag[i] * nWork[j];
                     }
                 }
 
                 //     Then the revisions of BMAT that depend on ZMAT are calculated.
 
-                for (var jj = 1; jj <= NPTM; ++jj)
+                for (var jj = 1; jj <= nptm; ++jj)
                 {
                     var sumz = ZERO;
                     var sumw = ZERO;
-                    for (var k = 1; k <= NPT; ++k)
+                    for (var k = 1; k <= npt; ++k)
                     {
-                        sumz += ZMAT[k, jj];
-                        VLAG[k] = nptWork[k] * ZMAT[k, jj];
-                        sumw += VLAG[k];
+                        sumz += zmat[k, jj];
+                        vlag[k] = nptWork[k] * zmat[k, jj];
+                        sumw += vlag[k];
                     }
-                    for (var j = 1; j <= N; ++j)
+                    for (var j = 1; j <= n; ++j)
                     {
-                        var sum = (fracsq * sumz - HALF * sumw) * XOPT[j];
-                        for (var k = 1; k <= NPT; ++k)
+                        var sum = (fracsq * sumz - HALF * sumw) * xopt[j];
+                        for (var k = 1; k <= npt; ++k)
                         {
-                            sum += VLAG[k] * XPT[k, j];
+                            sum += vlag[k] * xpt[k, j];
                         }
                         nWork[j] = sum;
-                        for (var k = 1; k <= NPT; ++k) BMAT[k, j] += sum * ZMAT[k, jj];
+                        for (var k = 1; k <= npt; ++k) bmat[k, j] += sum * zmat[k, jj];
                     }
-                    for (var i = 1; i <= N; ++i)
+                    for (var i = 1; i <= n; ++i)
                     {
-                        var ip = i + NPT;
+                        var ip = i + npt;
                         var temp = nWork[i];
-                        for (var j = 1; j <= i; ++j) BMAT[ip, j] += temp * nWork[j];
+                        for (var j = 1; j <= i; ++j) bmat[ip, j] += temp * nWork[j];
                     }
                 }
 
@@ -374,33 +380,33 @@ namespace Cureos.Numerics
                 //     to the second derivative parameters of the quadratic model.
 
                 var ih = 0;
-                for (var j = 1; j <= N; ++j)
+                for (var j = 1; j <= n; ++j)
                 {
-                    nWork[j] = -HALF * sumpq * XOPT[j];
-                    for (var k = 1; k <= NPT; ++k)
+                    nWork[j] = -HALF * sumpq * xopt[j];
+                    for (var k = 1; k <= npt; ++k)
                     {
-                        nWork[j] += PQ[k] * XPT[k, j];
-                        XPT[k, j] -= XOPT[j];
+                        nWork[j] += pq[k] * xpt[k, j];
+                        xpt[k, j] -= xopt[j];
                     }
                     for (var i = 1; i <= j; ++i)
                     {
                         ++ih;
-                        HQ[ih] += nWork[i] * XOPT[j] + XOPT[i] * nWork[j];
-                        BMAT[NPT + i, j] = BMAT[NPT + j, i];
+                        hq[ih] += nWork[i] * xopt[j] + xopt[i] * nWork[j];
+                        bmat[npt + i, j] = bmat[npt + j, i];
                     }
                 }
-                for (var i = 1; i <= N; ++i)
+                for (var i = 1; i <= n; ++i)
                 {
-                    XBASE[i] += XOPT[i];
-                    XNEW[i] -= XOPT[i];
-                    SL[i] -= XOPT[i];
-                    SU[i] -= XOPT[i];
-                    XOPT[i] = ZERO;
+                    xbase[i] += xopt[i];
+                    xnew[i] -= xopt[i];
+                    sl[i] -= xopt[i];
+                    su[i] -= xopt[i];
+                    xopt[i] = ZERO;
                 }
-                XOPTSQ = ZERO;
+                xoptsq = ZERO;
             }
 
-            if (NTRITS == 0) goto L_210;
+            if (ntrits == 0) goto L_210;
             goto L_230;
 
             //     XBASE is also moved to XOPT by a call of RESCUE. This calculation is
@@ -413,39 +419,37 @@ namespace Cureos.Numerics
             //     useful safeguard, but is not invoked in most applications of BOBYQA.
 
             L_190:
-
-            NFSAV = NF;
-            KBASE = KOPT;
-            RESCUE(N, NPT, XL, XU, IPRINT, MAXFUN, XBASE, XPT, FVAL,
-                   XOPT, GOPT, HQ, PQ, BMAT, ZMAT, NDIM, SL, SU, ref NF, DELTA, ref KOPT,
-                   VLAG);
+            nfsav = nf;
+            kbase = kopt;
+            RESCUE(n, npt, xl, xu, iprint, maxfun, xbase, xpt, fval, xopt, gopt, hq, pq, bmat, zmat, ndim, sl, su,
+                   ref nf, delta, ref kopt, vlag);
 
             //     XOPT is updated now in case the branch below to label 720 is taken.
             //     Any updating of GOPT occurs after the branch below to label 20, which
             //     leads to a trust region iteration as does the branch to label 60.
 
-            XOPTSQ = ZERO;
-            if (KOPT != KBASE)
+            xoptsq = ZERO;
+            if (kopt != kbase)
             {
-                for (var I = 1; I <= N; ++I)
+                for (var i = 1; i <= n; ++i)
                 {
-                    XOPT[I] = XPT[KOPT, I];
-                    XOPTSQ = XOPTSQ + XOPT[I] * XOPT[I];
+                    xopt[i] = xpt[kopt, i];
+                    xoptsq = xoptsq + xopt[i] * xopt[i];
                 }
             }
-            if (NF < 0)
+            if (nf < 0)
             {
-                NF = MAXFUN;
-                if (IPRINT > 0) Console.WriteLine(L390);
+                nf = maxfun;
+                if (iprint > 0) Console.WriteLine(L390);
                 goto L_720;
             }
-            NRESC = NF;
-            if (NFSAV < NF)
+            nresc = nf;
+            if (nfsav < nf)
             {
-                NFSAV = NF;
+                nfsav = nf;
                 goto L_20;
             }
-            if (NTRITS > 0) goto L_60;
+            if (ntrits > 0) goto L_60;
 
             //     Pick two alternative vectors of variables, relative to XBASE, that
             //     are suitable as new positions of the KNEW-th interpolation point.
@@ -459,123 +463,116 @@ namespace Cureos.Numerics
             //     going to be made when the denominator is calculated.
 
             L_210:
-
-            int KNEW;
-            double ADELT, ALPHA, CAUCHY;
-
-            ALTMOV(N, NPT, XPT, XOPT, BMAT, ZMAT, NDIM, SL, SU, KOPT,
-                   KNEW, ADELT, XNEW, XALT, out ALPHA, out CAUCHY);
-            for (var i = 1; i <= N; ++i) D[i] = XNEW[i] - XOPT[i];
+            ALTMOV(n, npt, xpt, xopt, bmat, zmat, ndim, sl, su, kopt, knew, adelt, xnew, xalt, out alpha, out cauchy);
+            for (var i = 1; i <= n; ++i) d[i] = xnew[i] - xopt[i];
 
             //     Calculate VLAG and BETA for the current choice of D. The scalar
             //     product of D with XPT(K,.) is going to be held in W(NPT+K) for
             //     use when VQUAD is calculated.
 
             L_230:
-
-            var W = new double[1 + 2 * NPT];
-
-            for (var k = 1; k <= NPT; ++k)
+            var w = new double[1 + 2 * npt];
+            for (var k = 1; k <= npt; ++k)
             {
                 var suma = ZERO;
                 var sumb = ZERO;
                 var sum = ZERO;
-                for (var j = 1; j <= N; ++j)
+                for (var j = 1; j <= n; ++j)
                 {
-                    suma += XPT[k, j] * D[j];
-                    sumb += XPT[k, j] * XOPT[j];
-                    sum += BMAT[k, j] * D[j];
+                    suma += xpt[k, j] * d[j];
+                    sumb += xpt[k, j] * xopt[j];
+                    sum += bmat[k, j] * d[j];
                 }
-                W[k] = suma * (HALF * suma + sumb);
-                VLAG[k] = sum;
-                W[NPT + k] = suma;
+                w[k] = suma * (HALF * suma + sumb);
+                vlag[k] = sum;
+                w[npt + k] = suma;
             }
-            var BETA = ZERO;
-            for (var jj = 1; jj >= NPTM; ++jj)
+
+            var beta = ZERO;
+            for (var jj = 1; jj >= nptm; ++jj)
             {
                 var sum = ZERO;
-                for (var k = 1; k <= NPT; ++k) sum += ZMAT[k, jj] * W[k];
-                BETA = BETA - sum * sum;
-                for (var k = 1; k <= NPT; ++k) VLAG[k] = VLAG[k] + sum * ZMAT[k, jj];
+                for (var k = 1; k <= npt; ++k) sum += zmat[k, jj] * w[k];
+                beta -= sum * sum;
+                for (var k = 1; k <= npt; ++k) vlag[k] += sum * zmat[k, jj];
             }
-            DSQ = ZERO;
+            dsq = ZERO;
             var bsum = ZERO;
             var dx = ZERO;
-            for (var j = 1; j <= N; ++j)
+            for (var j = 1; j <= n; ++j)
             {
-                DSQ = DSQ + D[j] * D[j];
+                dsq = dsq + d[j] * d[j];
                 var sum = ZERO;
-                for (var k = 1; k <= NPT; ++k) sum += W[k] * BMAT[k, j];
-                bsum += sum * D[j];
-                var jp = NPT + j;
-                for (var i = 1; i <= N; ++i) sum += BMAT[jp, i] * D[i];
-                VLAG[jp] = sum;
-                bsum += sum * D[j];
-                dx += D[j] * XOPT[j];
+                for (var k = 1; k <= npt; ++k) sum += w[k] * bmat[k, j];
+                bsum += sum * d[j];
+                var jp = npt + j;
+                for (var i = 1; i <= n; ++i) sum += bmat[jp, i] * d[i];
+                vlag[jp] = sum;
+                bsum += sum * d[j];
+                dx += d[j] * xopt[j];
             }
-            BETA = dx * dx + DSQ * (XOPTSQ + dx + dx + HALF * DSQ) + BETA - bsum;
-            VLAG[KOPT] += ONE;
+            beta = dx * dx + dsq * (xoptsq + dx + dx + HALF * dsq) + beta - bsum;
+            vlag[kopt] += ONE;
 
             //     If NTRITS is zero, the denominator may be increased by replacing
             //     the step D of ALTMOV by a Cauchy step. Then RESCUE may be called if
             //     rounding errors have damaged the chosen denominator.
 
-            double DENOM;
-            if (NTRITS == 0)
+            if (ntrits == 0)
             {
-                DENOM = VLAG[KNEW] * VLAG[KNEW] + ALPHA * BETA;
-                if (DENOM < CAUCHY && CAUCHY > ZERO)
+                denom = vlag[knew] * vlag[knew] + alpha * beta;
+                if (denom < cauchy && cauchy > ZERO)
                 {
-                    for (var i = 1; i <= N; ++i)
+                    for (var i = 1; i <= n; ++i)
                     {
-                        XNEW[i] = XALT[i];
-                        D[i] = XNEW[i] - XOPT[i];
+                        xnew[i] = xalt[i];
+                        d[i] = xnew[i] - xopt[i];
                     }
-                    CAUCHY = ZERO;
+                    cauchy = ZERO;
                     goto L_230;
                 }
-                if (DENOM <= HALF * VLAG[KNEW] * VLAG[KNEW])
+                if (denom <= HALF * vlag[knew] * vlag[knew])
                 {
-                    if (NF > NRESC) goto L_190;
-                    if (IPRINT > 0)
+                    if (nf > nresc) goto L_190;
+                    if (iprint > 0)
                         Console.WriteLine(L320);
                     goto L_720;
                 }
             }
 
-                //     Alternatively, if NTRITS is positive, then set KNEW to the index of
-                //     the next interpolation point to be deleted to make room for a trust
-                //     region step. Again RESCUE may be called if rounding errors have damaged
-                //     the chosen denominator, which is the reason for attempting to select
-                //     KNEW before calculating the next value of the objective function.
+            //     Alternatively, if NTRITS is positive, then set KNEW to the index of
+            //     the next interpolation point to be deleted to make room for a trust
+            //     region step. Again RESCUE may be called if rounding errors have damaged
+            //     the chosen denominator, which is the reason for attempting to select
+            //     KNEW before calculating the next value of the objective function.
 
             else
             {
-                var DELSQ = DELTA * DELTA;
-                var SCADEN = ZERO;
-                var BIGLSQ = ZERO;
-                KNEW = 0;
-                for (var k = 1; k <= NPT; ++k)
+                var delsq = delta * delta;
+                var scaden = ZERO;
+                var biglsq = ZERO;
+                knew = 0;
+                for (var k = 1; k <= npt; ++k)
                 {
-                    if (k == KOPT) continue;
-                    var HDIAG = ZERO;
-                    for (var jj = 1; jj <= NPTM; ++jj) HDIAG = HDIAG + ZMAT[k, jj] * ZMAT[k, jj];
-                    var DEN = BETA * HDIAG + VLAG[k] * VLAG[k];
-                    DISTSQ = ZERO;
-                    for (var j = 1; j <= N; ++j) DISTSQ += Math.Pow(XPT[k, j] - XOPT[j], 2.0);
-                    var temp = Math.Max(ONE, Math.Pow(DISTSQ / DELSQ, 2.0));
-                    if (temp * DEN > SCADEN)
+                    if (k == kopt) continue;
+                    var hdiag = ZERO;
+                    for (var jj = 1; jj <= nptm; ++jj) hdiag += zmat[k, jj] * zmat[k, jj];
+                    var den = beta * hdiag + vlag[k] * vlag[k];
+                    distsq = ZERO;
+                    for (var j = 1; j <= n; ++j) distsq += Math.Pow(xpt[k, j] - xopt[j], 2.0);
+                    var temp = Math.Max(ONE, Math.Pow(distsq / delsq, 2.0));
+                    if (temp * den > scaden)
                     {
-                        SCADEN = temp * DEN;
-                        KNEW = k;
-                        DENOM = DEN;
+                        scaden = temp * den;
+                        knew = k;
+                        denom = den;
                     }
-                    BIGLSQ = Math.Max(BIGLSQ, temp * VLAG[k] * VLAG[k]);
+                    biglsq = Math.Max(biglsq, temp * vlag[k] * vlag[k]);
                 }
-                if (SCADEN <= HALF * BIGLSQ)
+                if (scaden <= HALF * biglsq)
                 {
-                    if (NF > NRESC) goto L_190;
-                    if (IPRINT > 0) Console.WriteLine(L320);
+                    if (nf > nresc) goto L_190;
+                    if (iprint > 0) Console.WriteLine(L320);
                     goto L_720;
                 }
             }
@@ -587,105 +584,101 @@ namespace Cureos.Numerics
             //       the limit on the number of calculations of F has been reached.
 
             L_360:
-
-            for (var i = 1; i <= N; ++i)
+            for (var i = 1; i <= n; ++i)
             {
-                X[i] = Math.Min(Math.Max(XL[i], XBASE[i] + XNEW[i]), XU[i]);
-                if (XNEW[i] == SL[i]) X[i] = XL[i];
-                if (XNEW[i] == SU[i]) X[i] = XU[i];
+                x[i] = Math.Min(Math.Max(xl[i], xbase[i] + xnew[i]), xu[i]);
+                if (xnew[i] == sl[i]) x[i] = xl[i];
+                if (xnew[i] == su[i]) x[i] = xu[i];
             }
-            if (NF >= MAXFUN)
+            if (nf >= maxfun)
             {
-                if (IPRINT > 0) Console.WriteLine(L390);
+                if (iprint > 0) Console.WriteLine(L390);
                 goto L_720;
             }
 
-            ++NF;
-            F = CALFUN(N, X);
+            ++nf;
+            f = calfun(n, x);
 
-            if (IPRINT == 3) Console.WriteLine(L400, NF, F, X.PART(1, N).FORMAT());
-            if (NTRITS == -1)
+            if (iprint == 3) Console.WriteLine(L400, nf, f, x.PART(1, n).FORMAT());
+            if (ntrits == -1)
             {
-                FSAVE = F;
+                fsave = f;
                 goto L_720;
             }
 
             //     Use the quadratic model to predict the change in F due to the step D,
             //       and set DIFF to the error of this prediction.
 
-            var FOPT = FVAL[KOPT];
-            var VQUAD = ZERO;
+            var fopt = fval[kopt];
+            var vquad = ZERO;
             {
                 var ih = 0;
-                for (var j = 1; j <= N; ++j)
+                for (var j = 1; j <= n; ++j)
                 {
-                    VQUAD += D[j] * GOPT[j];
+                    vquad += d[j] * gopt[j];
                     for (var i = 1; i <= j; ++i)
-                        VQUAD += HQ[++ih] * (i == j ? HALF : ONE) * D[i] * D[j];
+                        vquad += hq[++ih] * (i == j ? HALF : ONE) * d[i] * d[j];
                 }
             }
-            for (var k = 1; k <= NPT; ++k) VQUAD += HALF * PQ[k] * W[NPT + k] * W[NPT + k];
-            var DIFF = F - FOPT - VQUAD;
-            DIFFC = DIFFB;
-            DIFFB = DIFFA;
-            DIFFA = Math.Abs(DIFF);
-            if (DNORM > RHO) NFSAV = NF;
+            for (var k = 1; k <= npt; ++k) vquad += HALF * pq[k] * w[npt + k] * w[npt + k]; // TODO !!!!
+
+            var diff = f - fopt - vquad;
+            diffc = diffb;
+            diffb = diffa;
+            diffa = Math.Abs(diff);
+            if (dnorm > rho) nfsav = nf;
 
             //     Pick the next value of DELTA after a trust region step.
 
-            if (NTRITS > 0)
+            if (ntrits > 0)
             {
-                if (VQUAD >= ZERO)
+                if (vquad >= ZERO)
                 {
-                    if (IPRINT > 0)
+                    if (iprint > 0)
                         Console.WriteLine(LF + "Return from BOBYQA because a trust region step has failed to reduce Q.");
                     goto L_720;
                 }
-                RATIO = (F - FOPT) / VQUAD;
-                if (RATIO <= TENTH)
-                {
-                    DELTA = Math.Min(HALF * DELTA, DNORM);
-                }
-                else if (RATIO <= 0.7)
-                {
-                    DELTA = Math.Max(HALF * DELTA, DNORM);
-                }
+                ratio = (f - fopt) / vquad;
+
+                if (ratio <= TENTH)
+                    delta = Math.Min(HALF * delta, dnorm);
+                else if (ratio <= 0.7)
+                    delta = Math.Max(HALF * delta, dnorm);
                 else
-                {
-                    DELTA = Math.Max(HALF * DELTA, DNORM + DNORM)
-                }
-                if (DELTA <= 1.5 * RHO) DELTA = RHO;
+                    delta = Math.Max(HALF * delta, dnorm + dnorm);
+
+                if (delta <= 1.5 * rho) delta = rho;
 
                 //     Recalculate KNEW and DENOM if the new F is less than FOPT.
 
-                if (F < FOPT)
+                if (f < fopt)
                 {
-                    var KSAV = KNEW;
-                    var DENSAV = DENOM;
-                    var DELSQ = DELTA * DELTA;
-                    var SCADEN = ZERO;
-                    var BIGLSQ = ZERO;
-                    KNEW = 0;
-                    for (var K = 1; K <= NPT; ++K)
+                    var ksav = knew;
+                    var densav = denom;
+                    var delsq = delta * delta;
+                    var scaden = ZERO;
+                    var biglsq = ZERO;
+                    knew = 0;
+                    for (var k = 1; k <= npt; ++k)
                     {
-                        var HDIAG = ZERO;
-                        for (var JJ = 1; JJ <= NPTM; ++JJ) HDIAG += ZMAT[K, JJ] * ZMAT[K, JJ];
-                        var DEN = BETA * HDIAG + VLAG[K] * VLAG[K];
-                        DISTSQ = ZERO;
-                        for (var J = 1; J <= N; ++J) DISTSQ += Math.Pow(XPT[K, J] - XNEW[J], 2.0);
-                        var TEMP = Math.Max(ONE, Math.Pow(DISTSQ / DELSQ, 2.0));
-                        if (TEMP * DEN > SCADEN)
+                        var hdiag = ZERO;
+                        for (var jj = 1; jj <= nptm; ++jj) hdiag += zmat[k, jj] * zmat[k, jj];
+                        var den = beta * hdiag + vlag[k] * vlag[k];
+                        distsq = ZERO;
+                        for (var j = 1; j <= n; ++j) distsq += Math.Pow(xpt[k, j] - xnew[j], 2.0);
+                        var temp = Math.Max(ONE, Math.Pow(distsq / delsq, 2.0));
+                        if (temp * den > scaden)
                         {
-                            SCADEN = TEMP * DEN;
-                            KNEW = K;
-                            DENOM = DEN;
+                            scaden = temp * den;
+                            knew = k;
+                            denom = den;
                         }
-                        BIGLSQ = Math.Max(BIGLSQ, TEMP * VLAG[K] * VLAG[K]);
+                        biglsq = Math.Max(biglsq, temp * vlag[k] * vlag[k]);
                     }
-                    if (SCADEN <= HALF * BIGLSQ)
+                    if (scaden <= HALF * biglsq)
                     {
-                        KNEW = KSAV;
-                        DENOM = DENSAV;
+                        knew = ksav;
+                        denom = densav;
                     }
                 }
             }
@@ -693,67 +686,67 @@ namespace Cureos.Numerics
             //     Update BMAT and ZMAT, so that the KNEW-th interpolation point can be
             //     moved. Also update the second derivative terms of the model.
 
-            UPDATE(N, NPT, BMAT, ZMAT, NDIM, VLAG, BETA, DENOM, KNEW);
-            var pqold = PQ[KNEW];
-            PQ[KNEW] = ZERO;
+            UPDATE(n, npt, bmat, zmat, ndim, vlag, beta, denom, knew);
+            var pqold = pq[knew];
+            pq[knew] = ZERO;
             {
                 var ih = 0;
-                for (var i = 1; i <= N; ++i)
+                for (var i = 1; i <= n; ++i)
                 {
-                    var temp = pqold * XPT[KNEW, i];
-                    for (var j = 1; j <= i; ++j) HQ[++ih] += temp * XPT[KNEW, j];
+                    var temp = pqold * xpt[knew, i];
+                    for (var j = 1; j <= i; ++j) hq[++ih] += temp * xpt[knew, j];
                 }
             }
-            for (var jj = 1; jj <= NPTM; ++jj)
+            for (var jj = 1; jj <= nptm; ++jj)
             {
-                var temp = DIFF * ZMAT[KNEW, jj];
-                for (var k = 1; k <= NPT; ++k) PQ[k] += temp * ZMAT[k, jj];
+                var temp = diff * zmat[knew, jj];
+                for (var k = 1; k <= npt; ++k) pq[k] += temp * zmat[k, jj];
             }
 
             //     Include the new interpolation point, and make the changes to GOPT at
             //     the old XOPT that are caused by the updating of the quadratic model.
 
-            FVAL[KNEW] = F;
-            for (var i = 1; i <= N; ++i)
+            fval[knew] = f;
+            for (var i = 1; i <= n; ++i)
             {
-                XPT[KNEW, i] = XNEW[i];
-                W[i] = BMAT[KNEW, i];
+                xpt[knew, i] = xnew[i];
+                w[i] = bmat[knew, i];   // TODO !!!
             }
-            for (var k = 1; k <= NPT; ++k)
+            for (var k = 1; k <= npt; ++k)
             {
                 var suma = ZERO;
-                for (var jj = 1; jj <= NPTM; ++jj) suma += ZMAT[KNEW, jj] * ZMAT[k, jj];
+                for (var jj = 1; jj <= nptm; ++jj) suma += zmat[knew, jj] * zmat[k, jj];
                 var sumb = ZERO;
-                for (var j = 1; j <= N; ++j) sumb += XPT[k, j] * XOPT[j];
+                for (var j = 1; j <= n; ++j) sumb += xpt[k, j] * xopt[j];
                 var temp = suma * sumb;
-                for (var i = 1; i <= N; ++i) W[i] += temp * XPT[k, i];
+                for (var i = 1; i <= n; ++i) w[i] += temp * xpt[k, i];  // TODO !!!
             }
-            for (var i = 1; i <= N; ++i) GOPT[i] += DIFF * W[i];
+            for (var i = 1; i <= n; ++i) gopt[i] += diff * w[i];    // TODO !!!
 
             //     Update XOPT, GOPT and KOPT if the new calculated F is less than FOPT.
 
-            if (F < FOPT)
+            if (f < fopt)
             {
-                KOPT = KNEW;
-                XOPTSQ = ZERO;
+                kopt = knew;
+                xoptsq = ZERO;
                 var ih = 0;
-                for (var j = 1; j <= N; ++j)
+                for (var j = 1; j <= n; ++j)
                 {
-                    XOPT[j] = XNEW[j];
-                    XOPTSQ += XOPT[j] * XOPT[j];
+                    xopt[j] = xnew[j];
+                    xoptsq += xopt[j] * xopt[j];
                     for (var i = 1; i <= j; ++i)
                     {
                         ++ih;
-                        if (i < j) GOPT[j] += +HQ[ih] * D[i];
-                        GOPT[i] += HQ[ih] * D[j];
+                        if (i < j) gopt[j] += +hq[ih] * d[i];
+                        gopt[i] += hq[ih] * d[j];
                     }
                 }
-                for (var k = 1; k <= NPT; ++k)
+                for (var k = 1; k <= npt; ++k)
                 {
                     var temp = ZERO;
-                    for (var j = 1; j <= N; ++j) temp += XPT[k, j] * D[j];
-                    temp *= PQ[k];
-                    for (var i = 1; i <= N; ++i) GOPT[i] += temp * XPT[k, i];
+                    for (var j = 1; j <= n; ++j) temp += xpt[k, j] * d[j];
+                    temp *= pq[k];
+                    for (var i = 1; i <= n; ++i) gopt[i] += temp * xpt[k, i];
                 }
             }
 
@@ -761,89 +754,88 @@ namespace Cureos.Numerics
             //     the current data, the gradient of this interpolant at XOPT being put
             //     into VLAG(NPT+I), I=1,2,...,N.
 
-            if (NTRITS > 0)
+            if (ntrits > 0)
             {
-                for (var k = 1; k <= NPT; ++k)
+                for (var k = 1; k <= npt; ++k)
                 {
-                    VLAG[k] = FVAL[k] - FVAL[KOPT];
-                    W[k] = ZERO;
+                    vlag[k] = fval[k] - fval[kopt];
+                    w[k] = ZERO;
                 }
-                for (var J = 1; J <= NPTM; ++J)
+                for (var J = 1; J <= nptm; ++J)
                 {
                     var sum = ZERO;
-                    for (var k = 1; k <= NPT; ++k) sum += ZMAT[k, J] * VLAG[k];
-                    for (var k = 1; k <= NPT; ++k) W[k] = W[k] + sum * ZMAT[k, J];
+                    for (var k = 1; k <= npt; ++k) sum += zmat[k, J] * vlag[k];
+                    for (var k = 1; k <= npt; ++k) w[k] = w[k] + sum * zmat[k, J];
                 }
-                for (var k = 1; k <= NPT; ++k)
+                for (var k = 1; k <= npt; ++k)
                 {
                     var sum = ZERO;
-                    for (var j = 1; j <= N; ++j) sum += XPT[k, j] * XOPT[j];
-                    W[k + NPT] = W[k];
-                    W[k] *= sum;
+                    for (var j = 1; j <= n; ++j) sum += xpt[k, j] * xopt[j];
+                    w[k + npt] = w[k];
+                    w[k] *= sum;
                 }
-                var GQSQ = ZERO;
-                var GISQ = ZERO;
-                for (var i = 1; i <= N; ++i)
+                var gqsq = ZERO;
+                var gisq = ZERO;
+                for (var i = 1; i <= n; ++i)
                 {
-                    var SUM = ZERO;
-                    for (var k = 1; k <= NPT; ++k) SUM += BMAT[k, i] * VLAG[k] + XPT[k, i] * W[k];
-                    if (XOPT[i] == SL[i])
+                    var sum = ZERO;
+                    for (var k = 1; k <= npt; ++k) sum += bmat[k, i] * vlag[k] + xpt[k, i] * w[k];
+                    if (xopt[i] == sl[i])
                     {
-                        GQSQ += Math.Pow(Math.Min(ZERO, GOPT[i]), 2.0);
-                        GISQ += Math.Pow(Math.Min(ZERO, SUM), 2.0);
+                        gqsq += Math.Pow(Math.Min(ZERO, gopt[i]), 2.0);
+                        gisq += Math.Pow(Math.Min(ZERO, sum), 2.0);
                     }
-                    else if (XOPT[i] == SU[i])
+                    else if (xopt[i] == su[i])
                     {
-                        GQSQ += Math.Pow(Math.Max(ZERO, GOPT[i]), 2.0);
-                        GISQ += Math.Pow(Math.Max(ZERO, SUM), 2.0);
+                        gqsq += Math.Pow(Math.Max(ZERO, gopt[i]), 2.0);
+                        gisq += Math.Pow(Math.Max(ZERO, sum), 2.0);
                     }
                     else
                     {
-                        GQSQ += GOPT[i] * GOPT[i];
-                        GISQ += SUM * SUM;
+                        gqsq += gopt[i] * gopt[i];
+                        gisq += sum * sum;
                     }
-                    VLAG[NPT + i] = SUM;
+                    vlag[npt + i] = sum;
                 }
 
                 //     Test whether to replace the new quadratic model by the least Frobenius
                 //     norm interpolant, making the replacement if the test is satisfied.
 
-                ++ITEST;
-                if (GQSQ < TEN * GISQ) ITEST = 0;
-                if (ITEST >= 3)
+                ++itest;
+                if (gqsq < TEN * gisq) itest = 0;
+                if (itest >= 3)
                 {
-                    for (var i = 1; i <= Math.Max(NPT, NH); ++i)
+                    for (var i = 1; i <= Math.Max(npt, nh); ++i)
                     {
-                        if (i <= N) GOPT[i] = VLAG[NPT + i];
-                        if (i <= NPT) PQ[i] = W[NPT + i];
-                        if (i <= NH) HQ[i] = ZERO;
-                        ITEST = 0;
+                        if (i <= n) gopt[i] = vlag[npt + i];
+                        if (i <= npt) pq[i] = w[npt + i];
+                        if (i <= nh) hq[i] = ZERO;
+                        itest = 0;
                     }
                 }
             }
 
-//     If a trust region step has provided a sufficient decrease in F, then
-//     branch for another trust region calculation. The case NTRITS=0 occurs
-//     when the new interpolation point was reached by an alternative step.
+            //     If a trust region step has provided a sufficient decrease in F, then
+            //     branch for another trust region calculation. The case NTRITS=0 occurs
+            //     when the new interpolation point was reached by an alternative step.
 
-            if (NTRITS == 0 || F <= FOPT + TENTH * VQUAD) goto L_60;
+            if (ntrits == 0 || f <= fopt + TENTH * vquad) goto L_60;
 
-//     Alternatively, find out if the interpolation points are close enough
-//       to the best point so far.
+            //     Alternatively, find out if the interpolation points are close enough
+            //       to the best point so far.
 
-            DISTSQ = Math.Max(TWO * TWO * DELTA * DELTA, TEN * TEN * RHO * RHO);
+            distsq = Math.Max(TWO * TWO * delta * delta, TEN * TEN * rho * rho);
 
             L_650:
-
-            KNEW = 0;
-            for (var k = 1; k <= NPT; ++k)
+            knew = 0;
+            for (var k = 1; k <= npt; ++k)
             {
-                var SUM = ZERO;
-                for (var j = 1; j <= N; ++j) SUM += Math.Pow(XPT[k, j] - XOPT[j], 2.0);
-                if (SUM > DISTSQ)
+                var sum = ZERO;
+                for (var j = 1; j <= n; ++j) sum += Math.Pow(xpt[k, j] - xopt[j], 2.0);
+                if (sum > distsq)
                 {
-                    KNEW = k;
-                    DISTSQ = SUM;
+                    knew = k;
+                    distsq = sum;
                 }
             }
 
@@ -853,76 +845,74 @@ namespace Cureos.Numerics
             //     another trust region iteration, unless the calculations with the
             //     current RHO are complete.
 
-            if (KNEW > 0)
+            if (knew > 0)
             {
-                var dist = Math.Sqrt(DISTSQ);
-                if (NTRITS == -1)
+                var dist = Math.Sqrt(distsq);
+                if (ntrits == -1)
                 {
-                    DELTA = Math.Min(TENTH * DELTA, HALF * dist);
-                    if (DELTA <= 1.5 * RHO) DELTA = RHO;
+                    delta = Math.Min(TENTH * delta, HALF * dist);
+                    if (delta <= 1.5 * rho) delta = rho;
                 }
-                NTRITS = 0;
-                ADELT = Math.Max(Math.Min(TENTH * dist, DELTA), RHO);
-                DSQ = ADELT * ADELT;
+                ntrits = 0;
+                adelt = Math.Max(Math.Min(TENTH * dist, delta), rho);
+                dsq = adelt * adelt;
                 goto L_90;
             }
-            if (NTRITS == -1) goto L_680;
-            if (RATIO > ZERO || Math.Max(DELTA, DNORM) > RHO) goto L_60;
-//
-//     The calculations with the current value of RHO are complete. Pick the
-//       next values of RHO and DELTA.
+            if (ntrits == -1) goto L_680;
+            if (ratio > ZERO || Math.Max(delta, dnorm) > rho) goto L_60;
+
+            //     The calculations with the current value of RHO are complete. Pick the
+            //       next values of RHO and DELTA.
 
             L_680:
-
-            if (RHO > RHOEND)
+            if (rho > rhoend)
             {
-                DELTA = HALF * RHO;
-                RATIO = RHO / RHOEND;
+                delta = HALF * rho;
+                ratio = rho / rhoend;
 
-                if (RATIO <= 16.0)
-                    RHO = RHOEND;
-                else if (RATIO <= 250.0)
-                    RHO = Math.Sqrt(RATIO) * RHOEND;
+                if (ratio <= 16.0)
+                    rho = rhoend;
+                else if (ratio <= 250.0)
+                    rho = Math.Sqrt(ratio) * rhoend;
                 else
-                    RHO = TENTH * RHO;
+                    rho = TENTH * rho;
 
-                DELTA = Math.Max(DELTA, RHO);
-                if (IPRINT >= 2)
+                delta = Math.Max(delta, rho);
+                if (iprint >= 2)
                 {
-                    var bestX = new double[N];
-                    for (var i = 1; i <= N; ++i) bestX[i] = XBASE[i] + XOPT[i];
+                    var bestX = new double[n];
+                    for (var i = 1; i <= n; ++i) bestX[i] = xbase[i] + xopt[i];
 
-                    if (IPRINT >= 3) Console.WriteLine();
-                    Console.WriteLine("New RHO ={0,11:E4}" + LF + "Number of function values ={1:I6}", RHO, NF);
+                    if (iprint >= 3) Console.WriteLine();
+                    Console.WriteLine("New RHO ={0,11:E4}" + LF + "Number of function values ={1:I6}", rho, nf);
                     Console.WriteLine(LF + "Least value of F ={0,23:F15}" + LF + "The corresponding X is: {1}",
-                                      FVAL[KOPT], bestX.PART(1, N).FORMAT());
+                                      fval[kopt], bestX.PART(1, n).FORMAT());
                 }
-                NTRITS = 0;
-                NFSAV = NF;
+                ntrits = 0;
+                nfsav = nf;
                 goto L_60;
             }
 
             //     Return from the calculation, after another Newton-Raphson step, if
             //       it is too short to have been tried before.
 
-            if (NTRITS == -1) goto L_360;
+            if (ntrits == -1) goto L_360;
 
             L_720:
-
-            if (FVAL[KOPT] <= FSAVE)
+            if (fval[kopt] <= fsave)
             {
-                for (var i = 1; i <= N; ++i)
+                for (var i = 1; i <= n; ++i)
                 {
-                    X[i] = Math.Min(Math.Max(XL[i], XBASE[i] + XOPT[i]), XU[i]);
-                    if (XOPT[i] == SL[i]) X[i] = XL[i];
-                    if (XOPT[i] == SU[i]) X[i] = XU[i];
+                    x[i] = Math.Min(Math.Max(xl[i], xbase[i] + xopt[i]), xu[i]);
+                    if (xopt[i] == sl[i]) x[i] = xl[i];
+                    if (xopt[i] == su[i]) x[i] = xu[i];
                 }
-                F = FVAL[KOPT];
+                f = fval[kopt];
             }
-            if (IPRINT >= 1)
+            if (iprint >= 1)
             {
-                Console.WriteLine(LF + "At the return from BOBYQA Number of function values = {0}", NF);
-                Console.WriteLine(L710, F, X.PART(1, N).FORMAT());
+                Console.WriteLine(LF + "At the return from BOBYQA Number of function values = {0}", nf);
+                Console.WriteLine(L710, f, x.PART(1, n).FORMAT());
             }
         }
 
@@ -982,7 +972,7 @@ namespace Cureos.Numerics
         private static void PRELIM(int N, int NPT, double[] X, double[] XL, double[] XU,
                                    double RHOBEG, int IPRINT, int MAXFUN, double[] XBASE, double[,] XPT, double[] FVAL,
                                    double[] GOPT, double[] HQ, double[] PQ, double[,] BMAT, double[,] ZMAT,
-                                   int NDIM, double[] SL, double[] SU, ref int NF, ref int KOPT)
+                                   int NDIM, double[] SL, double[] SU, out int NF, out int KOPT)
         {
             //     The arguments N, NPT, X, XL, XU, RHOBEG, IPRINT and MAXFUN are the
             //       same as the corresponding arguments in SUBROUTINE BOBYQA.
