@@ -596,7 +596,7 @@ namespace Cureos.Numerics
             ++nf;
             f = calfun(n, x);
 
-            if (iprint == 3) Console.WriteLine(L400, nf, f, x.PART(1, n).FORMAT());
+            if (iprint == 3) Console.WriteLine(L400, nf, f, x.ToString(n));
             if (ntrits == -1)
             {
                 fsave = f;
@@ -882,10 +882,9 @@ namespace Cureos.Numerics
                     var bestX = new double[1 + n];
                     for (var i = 1; i <= n; ++i) bestX[i] = xbase[i] + xopt[i];
 
-                    if (iprint >= 3) Console.WriteLine();
-                    Console.WriteLine("New RHO ={0,11:E4}" + LF + "Number of function values ={1,6}", rho, nf);
+                    Console.WriteLine(LF + "New RHO ={0,11:E4}" + LF + "Number of function values ={1,6}", rho, nf);
                     Console.WriteLine(LF + "Least value of F ={0,23:F15}" + LF + "The corresponding X is:{1}",
-                                      fval[kopt], bestX.PART(1, n).FORMAT());
+                                      fval[kopt], bestX.ToString(n));
                 }
                 ntrits = 0;
                 nfsav = nf;
@@ -911,7 +910,7 @@ namespace Cureos.Numerics
             if (iprint >= 1)
             {
                 Console.WriteLine(LF + "At the return from BOBYQA Number of function values = {0}", nf);
-                Console.WriteLine(L710, f, x.PART(1, n).FORMAT());
+                Console.WriteLine(L710, f, x.ToString(n));
             }
         }
 
@@ -1366,7 +1365,7 @@ namespace Cureos.Numerics
                 }
 
                 var f = calfun(n, x);
-                if (iprint == 3) Console.WriteLine(L400, nf, f, x.PART(1, n).FORMAT());
+                if (iprint == 3) Console.WriteLine(L400, nf, f, x.ToString(n));
                 fval[nf] = f;
                 if (nf == 1)
                 {
@@ -1825,7 +1824,8 @@ namespace Cureos.Numerics
 
                 ++nf;
                 var f = calfun(n, w);
-                if (iprint == 3) Console.WriteLine(L400, nf, f, w.PART(1, n).FORMAT());
+                if (iprint == 3) Console.WriteLine(L400, nf, f, w.ToString(n));
+
                 fval[kpt] = f;
                 if (f < fval[kopt]) kopt = kpt;
                 var diff = f - vquad;
@@ -2393,17 +2393,11 @@ namespace Cureos.Numerics
 
         #region PRIVATE SUPPORT METHODS
 
-        private static T[] PART<T>(this IList<T> src, int from, int to)
+        private static string ToString(this double[] x, int n)
         {
-            var dest = new T[to - from + 1];
-            var destidx = 0;
-            for (var srcidx = from; srcidx <= to; ++srcidx, ++destidx) dest[destidx] = src[srcidx];
-            return dest;
-        }
-
-        private static string FORMAT(this double[] x)
-        {
-            return String.Concat(Array.ConvertAll(x, val => String.Format("{0,13:F6}", val)));
+            var xout = new double[n];
+            for (var i = 0; i < n; ++i) xout[i] = x[1 + i];
+            return String.Concat(Array.ConvertAll(xout, val => String.Format("{0,13:F6}", val)));
         }
 
         #endregion
