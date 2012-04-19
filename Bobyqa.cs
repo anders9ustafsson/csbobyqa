@@ -215,7 +215,7 @@ namespace Cureos.Numerics
             //     less than NPT. GOPT will be updated if KOPT is different from KBASE.
 
             int nf, kopt;
-            PRELIM(n, npt, x, xl, xu, rhobeg, iprint, maxfun, xbase, xpt, fval, gopt, hq, pq, bmat, zmat, ndim, sl, su,
+            PRELIM(calfun,n, npt, x, xl, xu, rhobeg, iprint, maxfun, xbase, xpt, fval, gopt, hq, pq, bmat, zmat, ndim, sl, su,
                    out nf, out kopt);
 
             var xoptsq = ZERO;
@@ -1261,10 +1261,10 @@ namespace Cureos.Numerics
             }
         }
 
-        private static void PRELIM(int N, int NPT, double[] X, double[] XL, double[] XU,
-                                   double RHOBEG, int IPRINT, int MAXFUN, double[] XBASE, double[,] XPT, double[] FVAL,
-                                   double[] GOPT, double[] HQ, double[] PQ, double[,] BMAT, double[,] ZMAT,
-                                   int NDIM, double[] SL, double[] SU, out int NF, out int KOPT)
+        private static void PRELIM(Func<int, double[], double> calfun, int n, int npt, double[] x, 
+            double[] xl, double[] xu, double rhobeg, int iprint, int maxfun, double[] xbase, double[,] xpt, 
+            double[] fval, double[] gopt, double[] hq, double[] pq, double[,] bmat, double[,] zmat,
+            int ndim, double[] sl, double[] su, out int nf, out int kopt)
         {
             //     The arguments N, NPT, X, XL, XU, RHOBEG, IPRINT and MAXFUN are the
             //       same as the corresponding arguments in SUBROUTINE BOBYQA.
@@ -1284,11 +1284,157 @@ namespace Cureos.Numerics
 
             //     Set some constants.
 
-            var RHOSQ = RHOBEG * RHOBEG;
-            var RECIP = ONE / RHOSQ;
-            var NP = N + 1;
+            var rhosq = rhobeg * rhobeg;
+            var recip = ONE / rhosq;
+            var np = n + 1;
 
-            // TODO Continue implementation!!!
+            kopt = 0;
+
+            //     Set XBASE to the initial vector of variables, and set the initial
+            //     elements of XPT, BMAT, HQ, PQ and ZMAT to zero.
+
+            for (var j = 1; j <= n; ++j)
+            {
+                xbase[j] = x[j];
+                for (var k = 1; k <= npt; ++k) xpt[k, j] = ZERO;
+                for (var i = 1; i <= ndim; ++i) bmat[i, j] = ZERO;
+            }
+            for (var ih = 1; ih <= n * np / 2; ++ih) hq[ih] = ZERO;
+            for (var k = 1; k <= npt; ++k)
+            {
+                pq[k] = ZERO;
+                for (var j = 1; j <= npt - np; ++j) zmat[k, j] = ZERO;
+            }
+
+            //     Begin the initialization procedure. NF becomes one more than the number
+            //     of function values so far. The coordinates of the displacement of the
+            //     next initial interpolation point from XBASE are set in XPT(NF+1,.).
+
+            var ipt = 0;
+            var jpt = 0;
+            var stepa = 0.0;
+            var stepb = 0.0;
+            var fbeg = 0.0;
+
+            for (nf = 1; nf < Math.Min(npt, maxfun); ++nf)
+            {
+                var nfm = nf - 1;
+                var nfx = nf - 1 - n;
+
+                if (nfm <= 2 * n)
+                {
+                    if (nfm >= 1 && nfm <= n)
+                    {
+                        stepa = rhobeg;
+                        if (su[nfm] == ZERO) stepa = -stepa;
+                        xpt[nf, nfm] = stepa;
+                    }
+                    else if (nfm > n)
+                    {
+                        stepa = xpt[nf - n, nfx];
+                        stepb = -rhobeg;
+                        if (sl[nfx] == ZERO) stepb = Math.Min(TWO * rhobeg, su[nfx]);
+                        if (su[nfx] == ZERO) stepb = Math.Max(-TWO * rhobeg, sl[nfx]);
+                        xpt[nf, nfx] = stepb;
+                    }
+                }
+                else
+                {
+                    var itemp = (nfm - np) / n;
+                    jpt = nfm - itemp * n - n;
+                    ipt = jpt + itemp;
+                    if (ipt > n)
+                    {
+                        itemp = jpt;
+                        jpt = ipt - n;
+                        ipt = itemp;
+                    }
+                    xpt[nf, ipt] = xpt[ipt + 1, ipt];
+                    xpt[nf, jpt] = xpt[jpt + 1, jpt];
+                }
+
+                //     Calculate the next value of F. The least function value so far and
+                //     its index are required.
+
+                for (var j = 1; j <= n; ++j)
+                {
+                    x[j] = Math.Min(Math.Max(xl[j], xbase[j] + xpt[nf, j]), xu[j]);
+                    if (xpt[nf, j] == sl[j]) x[j] = xl[j];
+                    if (xpt[nf, j] == su[j]) x[j] = xu[j];
+                }
+
+                var f = calfun(n, x);
+                if (iprint == 3) Console.WriteLine(L400, nf, f, x.PART(1, n).FORMAT());
+                fval[nf] = f;
+                if (nf == 1)
+                {
+                    fbeg = f;
+                    kopt = 1;
+                }
+                else if (f < fval[kopt])
+                {
+                    kopt = nf;
+                }
+
+                //     Set the nonzero initial elements of BMAT and the quadratic model in the
+                //     cases when NF is at most 2*N+1. If NF exceeds N+1, then the positions
+                //     of the NF-th and (NF-N)-th interpolation points may be switched, in
+                //     order that the function value at the first of them contributes to the
+                //     off-diagonal second derivative terms of the initial quadratic model.
+
+                if (nf <= 2 * n + 1)
+                {
+                    if (nf >= 2 && nf <= n + 1)
+                    {
+                        gopt[nfm] = (f - fbeg) / stepa;
+                        if (npt < nf + n)
+                        {
+                            bmat[1, nfm] = -ONE / stepa;
+                            bmat[nf, nfm] = ONE / stepa;
+                            bmat[npt + nfm, nfm] = -HALF * rhosq;
+                        }
+                    }
+                    else if (nf >= n + 2)
+                    {
+                        var ih = (nfx * (nfx + 1)) / 2;
+                        var temp = (f - fbeg) / stepb;
+                        var diff = stepb - stepa;
+                        hq[ih] = TWO * (temp - gopt[nfx]) / diff;
+                        gopt[nfx] = (gopt[nfx] * stepb - temp * stepa) / diff;
+                        if (stepa * stepb < ZERO)
+                        {
+                            if (f < fval[nf - n])
+                            {
+                                fval[nf] = fval[nf - n];
+                                fval[nf - n] = f;
+                                if (kopt == nf) kopt = nf - n;
+                                xpt[nf - n, nfx] = stepb;
+                                xpt[nf, nfx] = stepa;
+                            }
+                        }
+                        bmat[1, nfx] = -(stepa + stepb) / (stepa * stepb);
+                        bmat[nf, nfx] = -HALF / xpt[nf - n, nfx];
+                        bmat[nf - n, nfx] = -bmat[1, nfx] - bmat[nf, nfx];
+                        zmat[1, nfx] = Math.Sqrt(TWO) / (stepa * stepb);
+                        zmat[nf, nfx] = Math.Sqrt(HALF) / rhosq;
+                        zmat[nf - n, nfx] = -zmat[1, nfx] - zmat[nf, nfx];
+                    }
+
+                }
+                else
+                {
+                    //     Set the off-diagonal second derivatives of the Lagrange functions and
+                    //     the initial quadratic model.
+
+                    var ih = (ipt * (ipt - 1)) / 2 + jpt;
+                    zmat[1, nfx] = recip;
+                    zmat[nf, nfx] = recip;
+                    zmat[ipt + 1, nfx] = -recip;
+                    zmat[jpt + 1, nfx] = -recip;
+                    var temp = xpt[nf, ipt] * xpt[nf, jpt];
+                    hq[ih] = (fbeg - fval[ipt + 1] - fval[jpt + 1] + f) / temp;
+                }
+            }
         }
 
         public static void RESCUE(int N, int NPT, double[] XL, double[] XU, int IPRINT, 
@@ -1296,7 +1442,6 @@ namespace Cureos.Numerics
             double[] HQ, double[] PQ, double[,] BMAT, double[,] ZMAT, int NDIM, double[] SL, double[] SU, 
             ref int NF, double DELTA, ref int KOPT, double[] VLAG)
         {
-
             //     The arguments N, NPT, XL, XU, IPRINT, MAXFUN, XBASE, XPT, FVAL, XOPT,
             //       GOPT, HQ, PQ, BMAT, ZMAT, NDIM, SL and SU have the same meanings as
             //       the corresponding arguments of BOBYQB on the entry to RESCUE.
@@ -1469,444 +1614,6 @@ namespace Cureos.Numerics
     }
 }
 /*
-      SUBROUTINE ALTMOV (N,NPT,XPT,XOPT,BMAT,ZMAT,NDIM,SL,SU,KOPT,
-     1  KNEW,ADELT,XNEW,XALT,ALPHA,CAUCHY,GLAG,HCOL,W)
-      IMPLICIT REAL*8 (A-H,O-Z)
-      DIMENSION XPT(NPT,*),XOPT(*),BMAT(NDIM,*),ZMAT(NPT,*),SL(*),
-     1  SU(*),XNEW(*),XALT(*),GLAG(*),HCOL(*),W(*)
-//
-//     The arguments N, NPT, XPT, XOPT, BMAT, ZMAT, NDIM, SL and SU all have
-//       the same meanings as the corresponding arguments of BOBYQB.
-//     KOPT is the index of the optimal interpolation point.
-//     KNEW is the index of the interpolation point that is going to be moved.
-//     ADELT is the current trust region bound.
-//     XNEW will be set to a suitable new position for the interpolation point
-//       XPT(KNEW,.). Specifically, it satisfies the SL, SU and trust region
-//       bounds and it should provide a large denominator in the next call of
-//       UPDATE. The step XNEW-XOPT from XOPT is restricted to moves along the
-//       straight lines through XOPT and another interpolation point.
-//     XALT also provides a large value of the modulus of the KNEW-th Lagrange
-//       function subject to the constraints that have been mentioned, its main
-//       difference from XNEW being that XALT-XOPT is a constrained version of
-//       the Cauchy step within the trust region. An exception is that XALT is
-//       not calculated if all components of GLAG (see below) are zero.
-//     ALPHA will be set to the KNEW-th diagonal element of the H matrix.
-//     CAUCHY will be set to the square of the KNEW-th Lagrange function at
-//       the step XALT-XOPT from XOPT for the vector XALT that is returned,
-//       except that CAUCHY is set to zero if XALT is not calculated.
-//     GLAG is a working space vector of length N for the gradient of the
-//       KNEW-th Lagrange function at XOPT.
-//     HCOL is a working space vector of length NPT for the second derivative
-//       coefficients of the KNEW-th Lagrange function.
-//     W is a working space vector of length 2N that is going to hold the
-//       constrained Cauchy step from XOPT of the Lagrange function, followed
-//       by the downhill version of XALT when the uphill step is calculated.
-//
-//     Set the first NPT components of W to the leading elements of the
-//     KNEW-th column of the H matrix.
-//
-      HALF=0.5D0
-      ONE=1.0D0
-      ZERO=0.0D0
-      CONST=ONE+Math.Sqrt(2.0D0)
-      DO 10 K=1,NPT
-   10 HCOL[K]=ZERO
-      DO 20 J=1,NPT-N-1
-      TEMP=ZMAT(KNEW,J)
-      DO 20 K=1,NPT
-   20 HCOL[K]=HCOL[K]+TEMP*ZMAT(K,J)
-      ALPHA=HCOL(KNEW)
-      HA=HALF*ALPHA
-//
-//     Calculate the gradient of the KNEW-th Lagrange function at XOPT.
-//
-      DO 30 I=1,N
-   30 GLAG[I]=BMAT(KNEW,I)
-      DO 50 K=1,NPT
-      TEMP=ZERO
-      DO 40 J=1,N
-   40 TEMP=TEMP+XPT(K,J)*XOPT[J]
-      TEMP=HCOL[K]*TEMP
-      DO 50 I=1,N
-   50 GLAG[I]=GLAG[I]+TEMP*XPT(K,I)
-//
-//     Search for a large denominator along the straight lines through XOPT
-//     and another interpolation point. SLBD and SUBD will be lower and upper
-//     bounds on the step along each of these lines in turn. PREDSQ will be
-//     set to the square of the predicted denominator for each line. PRESAV
-//     will be set to the largest admissible value of PREDSQ that occurs.
-//
-      PRESAV=ZERO
-      DO 80 K=1,NPT
-      if (K == KOPT) goto 80
-      DDERIV=ZERO
-      DISTSQ=ZERO
-      DO 60 I=1,N
-      TEMP=XPT(K,I)-XOPT[I]
-      DDERIV=DDERIV+GLAG[I]*TEMP
-   60 DISTSQ=DISTSQ+TEMP*TEMP
-      SUBD=ADELT/Math.Sqrt(DISTSQ)
-      SLBD=-SUBD
-      ILBD=0
-      IUBD=0
-      SUMIN=Math.Min(ONE,SUBD)
-//
-//     Revise SLBD and SUBD if necessary because of the bounds in SL and SU.
-//
-      DO 70 I=1,N
-      TEMP=XPT(K,I)-XOPT[I]
-      if (TEMP > ZERO) {
-          if (SLBD*TEMP < SL[I]-XOPT[I]) {
-              SLBD=(SL[I]-XOPT[I])/TEMP
-              ILBD=-I
-          }
-          if (SUBD*TEMP > SU[I]-XOPT[I]) {
-              SUBD=Math.Max(SUMIN,(SU[I]-XOPT[I])/TEMP)
-              IUBD=I
-          }
-      } else  if (TEMP < ZERO) {
-          if (SLBD*TEMP > SU[I]-XOPT[I]) {
-              SLBD=(SU[I]-XOPT[I])/TEMP
-              ILBD=I
-          }
-          if (SUBD*TEMP < SL[I]-XOPT[I]) {
-              SUBD=Math.Max(SUMIN,(SL[I]-XOPT[I])/TEMP)
-              IUBD=-I
-          }
-      }
-   70 CONTINUE
-//
-//     Seek a large modulus of the KNEW-th Lagrange function when the index
-//     of the other interpolation point on the line through XOPT is KNEW.
-//
-      if (K == KNEW) {
-          DIFF=DDERIV-ONE
-          STEP=SLBD
-          VLAG=SLBD*(DDERIV-SLBD*DIFF)
-          ISBD=ILBD
-          TEMP=SUBD*(DDERIV-SUBD*DIFF)
-          if (Math.Abs(TEMP) > Math.Abs(VLAG)) {
-              STEP=SUBD
-              VLAG=TEMP
-              ISBD=IUBD
-          }
-          TEMPD=HALF*DDERIV
-          TEMPA=TEMPD-DIFF*SLBD
-          TEMPB=TEMPD-DIFF*SUBD
-          if (TEMPA*TEMPB < ZERO) {
-              TEMP=TEMPD*TEMPD/DIFF
-              if (Math.Abs(TEMP) > Math.Abs(VLAG)) {
-                  STEP=TEMPD/DIFF
-                  VLAG=TEMP
-                  ISBD=0
-              }
-          }
-//
-//     Search along each of the other lines through XOPT and another point.
-//
-      } else {
-          STEP=SLBD
-          VLAG=SLBD*(ONE-SLBD)
-          ISBD=ILBD
-          TEMP=SUBD*(ONE-SUBD)
-          if (Math.Abs(TEMP) > Math.Abs(VLAG)) {
-              STEP=SUBD
-              VLAG=TEMP
-              ISBD=IUBD
-          }
-          if (SUBD > HALF) {
-              if (Math.Abs(VLAG) < 0.25D0) {
-                  STEP=HALF
-                  VLAG=0.25D0
-                  ISBD=0
-              }
-          }
-          VLAG=VLAG*DDERIV
-      }
-//
-//     Calculate PREDSQ for the current line search and maintain PRESAV.
-//
-      TEMP=STEP*(ONE-STEP)*DISTSQ
-      PREDSQ=VLAG*VLAG*(VLAG*VLAG+HA*TEMP*TEMP)
-      if (PREDSQ > PRESAV) {
-          PRESAV=PREDSQ
-          KSAV=K
-          STPSAV=STEP
-          IBDSAV=ISBD
-      }
-   80 CONTINUE
-//
-//     Construct XNEW in a way that satisfies the bound constraints exactly.
-//
-      DO 90 I=1,N
-      TEMP=XOPT[I]+STPSAV*(XPT(KSAV,I)-XOPT[I])
-   90 XNEW[I]=Math.Max(SL[I],Math.Min(SU[I],TEMP))
-      if (IBDSAV < 0) XNEW(-IBDSAV)=SL(-IBDSAV)
-      if (IBDSAV > 0) XNEW(IBDSAV)=SU(IBDSAV)
-//
-//     Prepare for the iterative method that assembles the constrained Cauchy
-//     step in W. The sum of squares of the fixed components of W is formed in
-//     WFIXSQ, and the free components of W are set to BIGSTP.
-//
-      BIGSTP=ADELT+ADELT
-      IFLAG=0
-  100 WFIXSQ=ZERO
-      GGFREE=ZERO
-      DO 110 I=1,N
-      W[I]=ZERO
-      TEMPA=Math.Min(XOPT[I]-SL[I],GLAG[I])
-      TEMPB=Math.Max(XOPT[I]-SU[I],GLAG[I])
-      if (TEMPA > ZERO || TEMPB < ZERO) {
-          W[I]=BIGSTP
-          GGFREE=GGFREE+GLAG[I]**2
-      }
-  110 CONTINUE
-      if (GGFREE == ZERO) {
-          CAUCHY=ZERO
-          goto 200
-      }
-//
-//     Investigate whether more components of W can be fixed.
-//
-  120 TEMP=ADELT*ADELT-WFIXSQ
-      if (TEMP > ZERO) {
-          WSQSAV=WFIXSQ
-          STEP=Math.Sqrt(TEMP/GGFREE)
-          GGFREE=ZERO
-          DO 130 I=1,N
-          if (W[I] == BIGSTP) {
-              TEMP=XOPT[I]-STEP*GLAG[I]
-              if (TEMP <= SL[I]) {
-                  W[I]=SL[I]-XOPT[I]
-                  WFIXSQ=WFIXSQ+W[I]**2
-              } else if (TEMP >= SU[I]) {
-                  W[I]=SU[I]-XOPT[I]
-                  WFIXSQ=WFIXSQ+W[I]**2
-              } else {
-                  GGFREE=GGFREE+GLAG[I]**2
-              }
-          }
-  130     CONTINUE
-          if (WFIXSQ > WSQSAV && GGFREE > ZERO) goto 120
-      }
-//
-//     Set the remaining free components of W and all components of XALT,
-//     except that W may be scaled later.
-//
-      GW=ZERO
-      DO 140 I=1,N
-      if (W[I] == BIGSTP) {
-          W[I]=-STEP*GLAG[I]
-          XALT[I]=Math.Max(SL[I],Math.Min(SU[I],XOPT[I]+W[I]))
-      } else if (W[I] == ZERO) {
-          XALT[I]=XOPT[I]
-      } else if (GLAG[I] > ZERO) {
-          XALT[I]=SL[I]
-      } else {
-          XALT[I]=SU[I]
-      }
-  140 GW=GW+GLAG[I]*W[I]
-//
-//     Set CURV to the curvature of the KNEW-th Lagrange function along W.
-//     Scale W by a factor less than one if that can reduce the modulus of
-//     the Lagrange function at XOPT+W. Set CAUCHY to the final value of
-//     the square of this function.
-//
-      CURV=ZERO
-      DO 160 K=1,NPT
-      TEMP=ZERO
-      DO 150 J=1,N
-  150 TEMP=TEMP+XPT(K,J)*W[J]
-  160 CURV=CURV+HCOL[K]*TEMP*TEMP
-      if (IFLAG == 1) CURV=-CURV
-      if (CURV > -GW && CURV < -CONST*GW) {
-          SCALE=-GW/CURV
-          DO 170 I=1,N
-          TEMP=XOPT[I]+SCALE*W[I]
-  170     XALT[I]=Math.Max(SL[I],Math.Min(SU[I],TEMP))
-          CAUCHY=(HALF*GW*SCALE)**2
-      } else {
-          CAUCHY=(GW+HALF*CURV)**2
-      }
-//
-//     If IFLAG is zero, then XALT is calculated as before after reversing
-//     the sign of GLAG. Thus two XALT vectors become available. The one that
-//     is chosen is the one that gives the larger value of CAUCHY.
-//
-      if (IFLAG == 0) {
-          DO 180 I=1,N
-          GLAG[I]=-GLAG[I]
-  180     W(N+I)=XALT[I]
-          CSAVE=CAUCHY
-          IFLAG=1
-          goto 100
-      }
-      if (CSAVE > CAUCHY) {
-          DO 190 I=1,N
-  190     XALT[I]=W(N+I)
-          CAUCHY=CSAVE
-      }
-  200 RETURN
-      END
-
-
-      SUBROUTINE PRELIM (N,NPT,X,XL,XU,RHOBEG,IPRINT,MAXFUN,XBASE,
-     1  XPT,FVAL,GOPT,HQ,PQ,BMAT,ZMAT,NDIM,SL,SU,NF,KOPT)
-      IMPLICIT REAL*8 (A-H,O-Z)
-      DIMENSION X(*),XL(*),XU(*),XBASE(*),XPT(NPT,*),FVAL(*),GOPT(*),
-     1  HQ(*),PQ(*),BMAT(NDIM,*),ZMAT(NPT,*),SL(*),SU(*)
-//
-//     The arguments N, NPT, X, XL, XU, RHOBEG, IPRINT and MAXFUN are the
-//       same as the corresponding arguments in SUBROUTINE BOBYQA.
-//     The arguments XBASE, XPT, FVAL, HQ, PQ, BMAT, ZMAT, NDIM, SL and SU
-//       are the same as the corresponding arguments in BOBYQB, the elements
-//       of SL and SU being set in BOBYQA.
-//     GOPT is usually the gradient of the quadratic model at XOPT+XBASE, but
-//       it is set by PRELIM to the gradient of the quadratic model at XBASE.
-//       If XOPT is nonzero, BOBYQB will change it to its usual value later.
-//     NF is maintaned as the number of calls of CALFUN so far.
-//     KOPT will be such that the least calculated value of F so far is at
-//       the point XPT(KOPT,.)+XBASE in the space of the variables.
-//
-//     SUBROUTINE PRELIM sets the elements of XBASE, XPT, FVAL, GOPT, HQ, PQ,
-//     BMAT and ZMAT for the first iteration, and it maintains the values of
-//     NF and KOPT. The vector X is also changed by PRELIM.
-//
-//     Set some constants.
-//
-      HALF=0.5D0
-      ONE=1.0D0
-      TWO=2.0D0
-      ZERO=0.0D0
-      RHOSQ=RHOBEG*RHOBEG
-      RECIP=ONE/RHOSQ
-      NP=N+1
-//
-//     Set XBASE to the initial vector of variables, and set the initial
-//     elements of XPT, BMAT, HQ, PQ and ZMAT to zero.
-//
-      DO 20 J=1,N
-      XBASE[J]=X[J]
-      DO 10 K=1,NPT
-   10 XPT(K,J)=ZERO
-      DO 20 I=1,NDIM
-   20 BMAT(I,J)=ZERO
-      DO 30 IH=1,(N*NP)/2
-   30 HQ(IH)=ZERO
-      DO 40 K=1,NPT
-      PQ[K]=ZERO
-      DO 40 J=1,NPT-NP
-   40 ZMAT(K,J)=ZERO
-//
-//     Begin the initialization procedure. NF becomes one more than the number
-//     of function values so far. The coordinates of the displacement of the
-//     next initial interpolation point from XBASE are set in XPT(NF+1,.).
-//
-      NF=0
-   50 NFM=NF
-      NFX=NF-N
-      NF=NF+1
-      if (NFM <= 2*N) {
-          if (NFM >= 1 && NFM <= N) {
-              STEPA=RHOBEG
-              if (SU(NFM) == ZERO) STEPA=-STEPA
-              XPT(NF,NFM)=STEPA
-          } else if (NFM > N) {
-              STEPA=XPT(NF-N,NFX)
-              STEPB=-RHOBEG
-              if (SL(NFX) == ZERO) STEPB=Math.Min(TWO*RHOBEG,SU(NFX))
-              if (SU(NFX) == ZERO) STEPB=Math.Max(-TWO*RHOBEG,SL(NFX))
-              XPT(NF,NFX)=STEPB
-          }
-      } else {
-          ITEMP=(NFM-NP)/N
-          JPT=NFM-ITEMP*N-N
-          IPT=JPT+ITEMP
-          if (IPT > N) {
-              ITEMP=JPT
-              JPT=IPT-N
-              IPT=ITEMP
-          }
-          XPT(NF,IPT)=XPT(IPT+1,IPT)
-          XPT(NF,JPT)=XPT(JPT+1,JPT)
-      }
-//
-//     Calculate the next value of F. The least function value so far and
-//     its index are required.
-//
-      DO 60 J=1,N
-      X[J]=Math.Min(Math.Max(XL[J],XBASE[J]+XPT(NF,J)),XU[J])
-      if (XPT(NF,J) == SL[J]) X[J]=XL[J]
-      if (XPT(NF,J) == SU[J]) X[J]=XU[J]
-   60 CONTINUE
-      CALL CALFUN (N,X,F)
-      if (IPRINT == 3) {
-          PRINT 70, NF,F,(X[I],I=1,N)
-   70      FORMAT (/4X,'Function number',I6,'    F =',1PD18.10,
-     1       '    The corresponding X is:'/(2X,5D15.6))
-      }
-      FVAL(NF)=F
-      if (NF == 1) {
-          FBEG=F
-          KOPT=1
-      } else if (F < FVAL(KOPT)) {
-          KOPT=NF
-      }
-//
-//     Set the nonzero initial elements of BMAT and the quadratic model in the
-//     cases when NF is at most 2*N+1. If NF exceeds N+1, then the positions
-//     of the NF-th and (NF-N)-th interpolation points may be switched, in
-//     order that the function value at the first of them contributes to the
-//     off-diagonal second derivative terms of the initial quadratic model.
-//
-      if (NF <= 2*N+1) {
-          if (NF >= 2 && NF <= N+1) {
-              GOPT(NFM)=(F-FBEG)/STEPA
-              if (NPT < NF+N) {
-                  BMAT(1,NFM)=-ONE/STEPA
-                  BMAT(NF,NFM)=ONE/STEPA
-                  BMAT(NPT+NFM,NFM)=-HALF*RHOSQ
-              }
-          } else if (NF >= N+2) {
-              IH=(NFX*(NFX+1))/2
-              TEMP=(F-FBEG)/STEPB
-              DIFF=STEPB-STEPA
-              HQ(IH)=TWO*(TEMP-GOPT(NFX))/DIFF
-              GOPT(NFX)=(GOPT(NFX)*STEPB-TEMP*STEPA)/DIFF
-              if (STEPA*STEPB < ZERO) {
-                  if (F < FVAL(NF-N)) {
-                      FVAL(NF)=FVAL(NF-N)
-                      FVAL(NF-N)=F
-                      if (KOPT == NF) KOPT=NF-N
-                      XPT(NF-N,NFX)=STEPB
-                      XPT(NF,NFX)=STEPA
-                  }
-              }
-              BMAT(1,NFX)=-(STEPA+STEPB)/(STEPA*STEPB)
-              BMAT(NF,NFX)=-HALF/XPT(NF-N,NFX)
-              BMAT(NF-N,NFX)=-BMAT(1,NFX)-BMAT(NF,NFX)
-              ZMAT(1,NFX)=Math.Sqrt(TWO)/(STEPA*STEPB)
-              ZMAT(NF,NFX)=Math.Sqrt(HALF)/RHOSQ
-              ZMAT(NF-N,NFX)=-ZMAT(1,NFX)-ZMAT(NF,NFX)
-          }
-//
-//     Set the off-diagonal second derivatives of the Lagrange functions and
-//     the initial quadratic model.
-//
-      } else {
-          IH=(IPT*(IPT-1))/2+JPT
-          ZMAT(1,NFX)=RECIP
-          ZMAT(NF,NFX)=RECIP
-          ZMAT(IPT+1,NFX)=-RECIP
-          ZMAT(JPT+1,NFX)=-RECIP
-          TEMP=XPT(NF,IPT)*XPT(NF,JPT)
-          HQ(IH)=(FBEG-FVAL(IPT+1)-FVAL(JPT+1)+F)/TEMP
-      }
-      if (NF < NPT && NF < MAXFUN) goto 50
-      RETURN
-      END
-
-
       SUBROUTINE RESCUE (N,NPT,XL,XU,IPRINT,MAXFUN,XBASE,XPT,
      1  FVAL,XOPT,GOPT,HQ,PQ,BMAT,ZMAT,NDIM,SL,SU,NF,DELTA,
      2  KOPT,VLAG,PTSAUX,PTSID,W)
