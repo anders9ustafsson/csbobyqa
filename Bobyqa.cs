@@ -2315,7 +2315,7 @@ namespace Cureos.Numerics
             goto L_120;
         }
 
-        private static void UPDATE(int N, int NPT, double[,] BMAT, double[,] ZMAT, int NDIM, double[] VLAG, double BETA, double DENOM, double KNEW, double[] W)
+        private static void UPDATE(int n, int npt, double[,] bmat, double[,] zmat, int ndim, double[] vlag, double beta, double denom, int knew, double[] w)
         {
             //     The arrays BMAT and ZMAT are updated, as required by the new position
             //     of the interpolation point that has the index KNEW. The vector VLAG has
@@ -2329,35 +2329,69 @@ namespace Cureos.Numerics
 
             //     Set some constants.
 
-            var NPTM = NPT - N - 1;
-            var ZTEST = ZERO;
-            for (var K = 1; K <= NPT; ++K)
-                for (var J = 1; J <= NPTM; ++J)
-                    ZTEST = Math.Max(ZTEST, Math.Abs(ZMAT[K, J]));
-            ZTEST = 1.0E-20 * ZTEST;
+            var nptm = npt - n - 1;
+            var ztest = ZERO;
+            for (var k = 1; k <= npt; ++k)
+                for (var j = 1; j <= nptm; ++j)
+                    ztest = Math.Max(ztest, Math.Abs(zmat[k, j]));
+            ztest = 1.0E-20 * ztest;
 
-            // TODO Continue implementation!!!
+            double temp, tempa, tempb;
+
+            //     Apply the rotations that put zeros in the KNEW-th row of ZMAT.
+            //
+            var jl = 1;
+            for (var j = 2; j <= nptm; ++j)
+            {
+                if (Math.Abs(zmat[knew, j]) > ztest)
+                {
+                    temp = Math.Sqrt(zmat[knew, 1] * zmat[knew, 1] + zmat[knew, j] * zmat[knew, j]);
+                    tempa = zmat[knew, 1] / temp;
+                    tempb = zmat[knew, j] / temp;
+                    for (var i = 1; i <= npt; ++i)
+                    {
+                        temp = tempa * zmat[i, 1] + tempb * zmat[i, j];
+                        zmat[i, j] = tempa * zmat[i, j] - tempb * zmat[i, 1];
+                        zmat[i, 1] = temp;
+                    }
+                }
+                zmat[knew, j] = ZERO;
+            }
+
+            //     Put the first NPT components of the KNEW-th column of HLAG into W,
+            //     and calculate the parameters of the updating formula.
+
+            for (var i = 1; i <= npt; ++i) w[i] = zmat[knew, 1] * zmat[i, 1];
+            var alpha = w[knew];
+            var tau = vlag[knew];
+            vlag[knew] -= ONE;
+
+            //     Complete the updating of ZMAT.
+
+            temp = Math.Sqrt(denom);
+            tempb = zmat[knew, 1] / temp;
+            tempa = tau / temp;
+            for (var i = 1; i <= npt; ++i) zmat[i, 1] = tempa * zmat[i, 1] - tempb * vlag[i];
+
+            //     Finally, update the matrix BMAT.
+
+            for (var j = 1; j <= n; ++j)
+            {
+                var jp = npt + j;
+                w[jp] = bmat[knew, j];
+                tempa = (alpha * vlag[jp] - tau * w[jp]) / denom;
+                tempb = (-beta * w[jp] - tau * vlag[jp]) / denom;
+                for (var i = 1; i <= jp; ++i)
+                {
+                    bmat[i, j] = bmat[i, j] + tempa * vlag[i] + tempb * w[i];
+                    if (i > npt) bmat[jp, i - npt] = bmat[i, j];
+                }
+            }
         }
 
         #endregion
 
         #region PRIVATE SUPPORT METHODS
-
-        private static T[] ROW<T>(this T[,] src, int rowidx)
-        {
-            var cols = src.GetLength(1);
-            var dest = new T[cols];
-            for (var col = 0; col < cols; ++col) dest[col] = src[rowidx, col];
-            return dest;
-        }
-
-        private static T[] COL<T>(this T[,] src, int colidx)
-        {
-            var rows = src.GetLength(0);
-            var dest = new T[rows];
-            for (var row = 0; row < rows; ++row) dest[row] = src[row, colidx];
-            return dest;
-        }
 
         private static T[] PART<T>(this IList<T> src, int from, int to)
         {
@@ -2376,389 +2410,6 @@ namespace Cureos.Numerics
     }
 }
 /*
-      SUBROUTINE TRSBOX (N,NPT,XPT,XOPT,GOPT,HQ,PQ,SL,SU,DELTA,
-     1  XNEW,D,GNEW,XBDI,S,HS,HRED,DSQ,CRVMIN)
-      IMPLICIT REAL*8 (A-H,O-Z)
-      DIMENSION XPT(NPT,*),XOPT(*),GOPT(*),HQ(*),PQ(*),SL(*),SU(*),
-     1  XNEW(*),D(*),GNEW(*),XBDI(*),S(*),HS(*),HRED(*)
-//
-//     The arguments N, NPT, XPT, XOPT, GOPT, HQ, PQ, SL and SU have the same
-//       meanings as the corresponding arguments of BOBYQB.
-//     DELTA is the trust region radius for the present calculation, which
-//       seeks a small value of the quadratic model within distance DELTA of
-//       XOPT subject to the bounds on the variables.
-//     XNEW will be set to a new vector of variables that is approximately
-//       the one that minimizes the quadratic model within the trust region
-//       subject to the SL and SU constraints on the variables. It satisfies
-//       as equations the bounds that become active during the calculation.
-//     D is the calculated trial step from XOPT, generated iteratively from an
-//       initial value of zero. Thus XNEW is XOPT+D after the final iteration.
-//     GNEW holds the gradient of the quadratic model at XOPT+D. It is updated
-//       when D is updated.
-//     XBDI is a working space vector. For I=1,2,...,N, the element XBDI[I] is
-//       set to -1.0, 0.0, or 1.0, the value being nonzero if and only if the
-//       I-th variable has become fixed at a bound, the bound being SL[I] or
-//       SU[I] in the case XBDI[I]=-1.0 or XBDI[I]=1.0, respectively. This
-//       information is accumulated during the construction of XNEW.
-//     The arrays S, HS and HRED are also used for working space. They hold the
-//       current search direction, and the changes in the gradient of Q along S
-//       and the reduced D, respectively, where the reduced D is the same as D,
-//       except that the components of the fixed variables are zero.
-//     DSQ will be set to the square of the length of XNEW-XOPT.
-//     CRVMIN is set to zero if D reaches the trust region boundary. Otherwise
-//       it is set to the least curvature of H that occurs in the conjugate
-//       gradient searches that are not restricted by any constraints. The
-//       value CRVMIN=-1.0D0 is set, however, if all of these searches are
-//       constrained.
-//
-//     A version of the truncated conjugate gradient is applied. If a line
-//     search is restricted by a constraint, then the procedure is restarted,
-//     the values of the variables that are at their bounds being fixed. If
-//     the trust region boundary is reached, then further changes may be made
-//     to D, each one being in the two dimensional space that is spanned
-//     by the current D and the gradient of Q at XOPT+D, staying on the trust
-//     region boundary. Termination occurs when the reduction in Q seems to
-//     be close to the greatest reduction that can be achieved.
-//
-//     Set some constants.
-//
-      HALF=0.5D0
-      ONE=1.0D0
-      ONEMIN=-1.0D0
-      ZERO=0.0D0
-//
-//     The sign of GOPT[I] gives the sign of the change to the I-th variable
-//     that will reduce Q from its value at XOPT. Thus XBDI[I] shows whether
-//     or not to fix the I-th variable at one of its bounds initially, with
-//     NACT being set to the number of fixed variables. D and GNEW are also
-//     set for the first iteration. DELSQ is the upper bound on the sum of
-//     squares of the free variables. QRED is the reduction in Q so far.
-//
-      ITERC=0
-      NACT=0
-      SQSTP=ZERO
-      DO 10 I=1,N
-      XBDI[I]=ZERO
-      if (XOPT[I] <= SL[I]) {
-          if (GOPT[I] >= ZERO) XBDI[I]=ONEMIN
-      } else if (XOPT[I] >= SU[I]) {
-          if (GOPT[I] <= ZERO) XBDI[I]=ONE
-      }
-      if (XBDI[I] != ZERO) NACT=NACT+1
-      D[I]=ZERO
-   10 GNEW[I]=GOPT[I]
-      DELSQ=DELTA*DELTA
-      QRED=ZERO
-      CRVMIN=ONEMIN
-//
-//     Set the next search direction of the conjugate gradient method. It is
-//     the steepest descent direction initially and when the iterations are
-//     restarted because a variable has just been fixed by a bound, and of
-//     course the components of the fixed variables are zero. ITERMAX is an
-//     upper bound on the indices of the conjugate gradient iterations.
-//
-   20 BETA=ZERO
-   30 STEPSQ=ZERO
-      DO 40 I=1,N
-      if (XBDI[I] != ZERO) {
-          S[I]=ZERO
-      } else if (BETA == ZERO) {
-          S[I]=-GNEW[I]
-      } else {
-          S[I]=BETA*S[I]-GNEW[I]
-      }
-   40 STEPSQ=STEPSQ+S[I]**2
-      if (STEPSQ == ZERO) goto 190
-      if (BETA == ZERO) {
-          GREDSQ=STEPSQ
-          ITERMAX=ITERC+N-NACT
-      }
-      if (GREDSQ*DELSQ <= 1.0D-4*QRED*QRED) GO TO 190
-//
-//     Multiply the search direction by the second derivative matrix of Q and
-//     calculate some scalars for the choice of steplength. Then set BLEN to
-//     the length of the the step to the trust region boundary and STPLEN to
-//     the steplength, ignoring the simple bounds.
-//
-      goto 210
-   50 RESID=DELSQ
-      DS=ZERO
-      SHS=ZERO
-      DO 60 I=1,N
-      if (XBDI[I] == ZERO) {
-          RESID=RESID-D[I]**2
-          DS=DS+S[I]*D[I]
-          SHS=SHS+S[I]*HS[I]
-      }
-   60 CONTINUE
-      if (RESID <= ZERO) goto 90
-      TEMP=Math.Sqrt(STEPSQ*RESID+DS*DS)
-      if (DS < ZERO) {
-          BLEN=(TEMP-DS)/STEPSQ
-      } else {
-          BLEN=RESID/(TEMP+DS)
-      }
-      STPLEN=BLEN
-      if (SHS > ZERO) {
-          STPLEN=Math.Min(BLEN,GREDSQ/SHS)
-      }
-      
-//
-//     Reduce STPLEN if necessary in order to preserve the simple bounds,
-//     letting IACT be the index of the new constrained variable.
-//
-      IACT=0
-      DO 70 I=1,N
-      if (S[I] != ZERO) {
-          XSUM=XOPT[I]+D[I]
-          if (S[I] > ZERO) {
-              TEMP=(SU[I]-XSUM)/S[I]
-          } else {
-              TEMP=(SL[I]-XSUM)/S[I]
-          }
-          if (TEMP < STPLEN) {
-              STPLEN=TEMP
-              IACT=I
-          }
-      }
-   70 CONTINUE
-//
-//     Update CRVMIN, GNEW and D. Set SDEC to the decrease that occurs in Q.
-//
-      SDEC=ZERO
-      if (STPLEN > ZERO) {
-          ITERC=ITERC+1
-          TEMP=SHS/STEPSQ
-          if (IACT == 0 && TEMP > ZERO) {
-              CRVMIN=Math.Min(CRVMIN,TEMP)
-              if (CRVMIN == ONEMIN) CRVMIN=TEMP
-          } 
-          GGSAV=GREDSQ
-          GREDSQ=ZERO
-          DO 80 I=1,N
-          GNEW[I]=GNEW[I]+STPLEN*HS[I]
-          if (XBDI[I] == ZERO) GREDSQ=GREDSQ+GNEW[I]**2
-   80     D[I]=D[I]+STPLEN*S[I]
-          SDEC=Math.Max(STPLEN*(GGSAV-HALF*STPLEN*SHS),ZERO)
-          QRED=QRED+SDEC
-      }
-//
-//     Restart the conjugate gradient method if it has hit a new bound.
-//
-      if (IACT > 0) {
-          NACT=NACT+1
-          XBDI(IACT)=ONE
-          if (S(IACT) < ZERO) XBDI(IACT)=ONEMIN
-          DELSQ=DELSQ-D(IACT)**2
-          if (DELSQ <= ZERO) goto 90
-          goto 20
-      }
-//
-//     If STPLEN is less than BLEN, then either apply another conjugate
-//     gradient iteration or RETURN.
-//
-      if (STPLEN < BLEN) {
-          if (ITERC == ITERMAX) goto 190
-          if (SDEC <= 0.01D0*QRED) goto 190
-          BETA=GREDSQ/GGSAV
-          goto 30
-      }
-   90 CRVMIN=ZERO
-//
-//     Prepare for the alternative iteration by calculating some scalars
-//     and by multiplying the reduced D by the second derivative matrix of
-//     Q, where S holds the reduced D in the call of GGMULT.
-//
-  100 if (NACT >= N-1) goto 190
-      DREDSQ=ZERO
-      DREDG=ZERO
-      GREDSQ=ZERO
-      DO 110 I=1,N
-      if (XBDI[I] == ZERO) {
-          DREDSQ=DREDSQ+D[I]**2
-          DREDG=DREDG+D[I]*GNEW[I]
-          GREDSQ=GREDSQ+GNEW[I]**2
-          S[I]=D[I]
-      } else {
-          S[I]=ZERO
-      }
-  110 CONTINUE
-      ITCSAV=ITERC
-      goto 210
-//
-//     Let the search direction S be a linear combination of the reduced D
-//     and the reduced G that is orthogonal to the reduced D.
-//
-  120 ITERC=ITERC+1
-      TEMP=GREDSQ*DREDSQ-DREDG*DREDG
-      if (TEMP <= 1.0D-4*QRED*QRED) goto 190
-      TEMP=Math.Sqrt(TEMP)
-      DO 130 I=1,N
-      if (XBDI[I] == ZERO) {
-          S[I]=(DREDG*D[I]-DREDSQ*GNEW[I])/TEMP
-      } else {
-          S[I]=ZERO
-      }
-  130 CONTINUE
-      SREDG=-TEMP
-//
-//     By considering the simple bounds on the variables, calculate an upper
-//     bound on the tangent of half the angle of the alternative iteration,
-//     namely ANGBD, except that, if already a free variable has reached a
-//     bound, there is a branch back to label 100 after fixing that variable.
-//
-      ANGBD=ONE
-      IACT=0
-      DO 140 I=1,N
-      if (XBDI[I] == ZERO) {
-          TEMPA=XOPT[I]+D[I]-SL[I]
-          TEMPB=SU[I]-XOPT[I]-D[I]
-          if (TEMPA <= ZERO) {
-              NACT=NACT+1
-              XBDI[I]=ONEMIN
-              goto 100
-          } else if (TEMPB <= ZERO) {
-              NACT=NACT+1
-              XBDI[I]=ONE
-              goto 100
-          }
-          RATIO=ONE
-          SSQ=D[I]**2+S[I]**2
-          TEMP=SSQ-(XOPT[I]-SL[I])**2
-          if (TEMP > ZERO) {
-              TEMP=Math.Sqrt(TEMP)-S[I]
-              if (ANGBD*TEMP > TEMPA) {
-                  ANGBD=TEMPA/TEMP
-                  IACT=I
-                  XSAV=ONEMIN
-              }
-          }
-          TEMP=SSQ-(SU[I]-XOPT[I])**2
-          if (TEMP > ZERO) {
-              TEMP=Math.Sqrt(TEMP)+S[I]
-              if (ANGBD*TEMP > TEMPB) {
-                  ANGBD=TEMPB/TEMP
-                  IACT=I
-                  XSAV=ONE
-              }
-          }
-      }
-  140 CONTINUE
-//
-//     Calculate HHD and some curvatures for the alternative iteration.
-//
-      goto 210
-  150 SHS=ZERO
-      DHS=ZERO
-      DHD=ZERO
-      DO 160 I=1,N
-      if (XBDI[I] == ZERO) {
-          SHS=SHS+S[I]*HS[I]
-          DHS=DHS+D[I]*HS[I]
-          DHD=DHD+D[I]*HRED[I]
-      }
-  160 CONTINUE
-//
-//     Seek the greatest reduction in Q for a range of equally spaced values
-//     of ANGT in [0,ANGBD], where ANGT is the tangent of half the angle of
-//     the alternative iteration.
-//
-      REDMAX=ZERO
-      ISAV=0
-      REDSAV=ZERO
-      IU=17.0D0*ANGBD+3.1D0
-      DO 170 I=1,IU
-      ANGT=ANGBD*DFLOAT[I]/DFLOAT(IU)
-      STH=(ANGT+ANGT)/(ONE+ANGT*ANGT)
-      TEMP=SHS+ANGT*(ANGT*DHD-DHS-DHS)
-      REDNEW=STH*(ANGT*DREDG-SREDG-HALF*STH*TEMP)
-      if (REDNEW > REDMAX) {
-          REDMAX=REDNEW
-          ISAV=I
-          RDPREV=REDSAV
-      } else if (I == ISAV+1) {
-          RDNEXT=REDNEW
-      }
-  170 REDSAV=REDNEW
-//
-//     Return if the reduction is zero. Otherwise, set the sine and cosine
-//     of the angle of the alternative iteration, and calculate SDEC.
-//
-      if (ISAV == 0) goto 190
-      if (ISAV < IU) {
-          TEMP=(RDNEXT-RDPREV)/(REDMAX+REDMAX-RDPREV-RDNEXT)
-          ANGT=ANGBD*(DFLOAT(ISAV)+HALF*TEMP)/DFLOAT(IU)
-      }
-      CTH=(ONE-ANGT*ANGT)/(ONE+ANGT*ANGT)
-      STH=(ANGT+ANGT)/(ONE+ANGT*ANGT)
-      TEMP=SHS+ANGT*(ANGT*DHD-DHS-DHS)
-      SDEC=STH*(ANGT*DREDG-SREDG-HALF*STH*TEMP)
-      if (SDEC <= ZERO) goto 190
-//
-//     Update GNEW, D and HRED. If the angle of the alternative iteration
-//     is restricted by a bound on a free variable, that variable is fixed
-//     at the bound.
-//
-      DREDG=ZERO
-      GREDSQ=ZERO
-      DO 180 I=1,N
-      GNEW[I]=GNEW[I]+(CTH-ONE)*HRED[I]+STH*HS[I]
-      if (XBDI[I] == ZERO) {
-          D[I]=CTH*D[I]+STH*S[I]
-          DREDG=DREDG+D[I]*GNEW[I]
-          GREDSQ=GREDSQ+GNEW[I]**2
-      }
-  180 HRED[I]=CTH*HRED[I]+STH*HS[I]
-      QRED=QRED+SDEC
-      if (IACT > 0 && ISAV == IU) {
-          NACT=NACT+1
-          XBDI(IACT)=XSAV
-          goto 100
-      }
-//
-//     If SDEC is sufficiently small, then RETURN after setting XNEW to
-//     XOPT+D, giving careful attention to the bounds.
-//
-      if (SDEC > 0.01D0*QRED) goto 120
-  190 DSQ=ZERO
-      DO 200 I=1,N
-      XNEW[I]=Math.Max(Math.Min(XOPT[I]+D[I],SU[I]),SL[I])
-      if (XBDI[I] == ONEMIN) XNEW[I]=SL[I]
-      if (XBDI[I] == ONE) XNEW[I]=SU[I]
-      D[I]=XNEW[I]-XOPT[I]
-  200 DSQ=DSQ+D[I]**2
-      RETURN
- 
-//     The following instructions multiply the current S-vector by the second
-//     derivative matrix of the quadratic model, putting the product in HS.
-//     They are reached from three different parts of the software above and
-//     they can be regarded as an external subroutine.
-//
-  210 IH=0
-      DO 220 J=1,N
-      HS[J]=ZERO
-      DO 220 I=1,J
-      IH=IH+1
-      if (I < J) HS[J]=HS[J]+HQ(IH)*S[I]
-  220 HS[I]=HS[I]+HQ(IH)*S[J]
-      DO 250 K=1,NPT
-      if (PQ[K] != ZERO) {
-          TEMP=ZERO
-          DO 230 J=1,N
-  230     TEMP=TEMP+XPT[K,J]*S[J]
-          TEMP=TEMP*PQ[K]
-          DO 240 I=1,N
-  240     HS[I]=HS[I]+TEMP*XPT(K,I)
-      }
-  250 CONTINUE
-      if (CRVMIN != ZERO) goto 50
-      if (ITERC > ITCSAV) goto 150
-      DO 260 I=1,N
-  260 HRED[I]=HS[I]
-      goto 120
-      END
-
-
       SUBROUTINE UPDATE (N,NPT,BMAT,ZMAT,NDIM,VLAG,BETA,DENOM,
      1  KNEW,W)
       IMPLICIT REAL*8 (A-H,O-Z)
