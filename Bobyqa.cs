@@ -193,7 +193,7 @@ namespace Cureos.Numerics
             var vlag = new double[1 + ndim];
 
             var wn = new double[1 + n];
-            var wnpt = new double[1 + 2 * npt];
+            var w2npt = new double[1 + 2 * npt];
 
             var knew = 0;
             var adelt = 0.0;
@@ -337,7 +337,7 @@ namespace Cureos.Numerics
                     sumpq += pq[k];
                     var sum = -HALF * xoptsq;
                     for (var i = 1; i <= n; ++i) sum += xpt[k, i] * xopt[i];
-                    wnpt[k] = sum;
+                    w2npt[k] = sum;
                     var temp = fracsq - HALF * sum;
                     for (var i = 1; i <= n; ++i)
                     {
@@ -357,7 +357,7 @@ namespace Cureos.Numerics
                     for (var k = 1; k <= npt; ++k)
                     {
                         sumz += zmat[k, jj];
-                        vlag[k] = wnpt[k] * zmat[k, jj];
+                        vlag[k] = w2npt[k] * zmat[k, jj];
                         sumw += vlag[k];
                     }
                     for (var j = 1; j <= n; ++j)
@@ -461,7 +461,7 @@ namespace Cureos.Numerics
             //     going to be made when the denominator is calculated.
 
             L_210:
-            ALTMOV(n, npt, xpt, xopt, bmat, zmat, ndim, sl, su, kopt, knew, adelt, xnew, xalt, out alpha, out cauchy);
+            ALTMOV(n, npt, xpt, xopt, bmat, zmat, sl, su, kopt, knew, adelt, xnew, xalt, out alpha, out cauchy);
             for (var i = 1; i <= n; ++i) d[i] = xnew[i] - xopt[i];
 
             //     Calculate VLAG and BETA for the current choice of D. The scalar
@@ -480,16 +480,16 @@ namespace Cureos.Numerics
                     sumb += xpt[k, j] * xopt[j];
                     sum += bmat[k, j] * d[j];
                 }
-                wnpt[k] = suma * (HALF * suma + sumb);
+                w2npt[k] = suma * (HALF * suma + sumb);
                 vlag[k] = sum;
-                wnpt[npt + k] = suma;
+                w2npt[npt + k] = suma;
             }
 
             beta = ZERO;
             for (var jj = 1; jj >= nptm; ++jj)
             {
                 var sum = ZERO;
-                for (var k = 1; k <= npt; ++k) sum += zmat[k, jj] * wnpt[k];
+                for (var k = 1; k <= npt; ++k) sum += zmat[k, jj] * w2npt[k];
                 beta -= sum * sum;
                 for (var k = 1; k <= npt; ++k) vlag[k] += sum * zmat[k, jj];
             }
@@ -500,7 +500,7 @@ namespace Cureos.Numerics
             {
                 dsq = dsq + d[j] * d[j];
                 var sum = ZERO;
-                for (var k = 1; k <= npt; ++k) sum += wnpt[k] * bmat[k, j];
+                for (var k = 1; k <= npt; ++k) sum += w2npt[k] * bmat[k, j];
                 bsum += sum * d[j];
                 var jp = npt + j;
                 for (var i = 1; i <= n; ++i) sum += bmat[jp, i] * d[i];
@@ -617,7 +617,7 @@ namespace Cureos.Numerics
                         vquad += hq[++ih] * (i == j ? HALF : ONE) * d[i] * d[j];
                 }
             }
-            for (var k = 1; k <= npt; ++k) vquad += HALF * pq[k] * wnpt[npt + k] * wnpt[npt + k];
+            for (var k = 1; k <= npt; ++k) vquad += HALF * pq[k] * w2npt[npt + k] * w2npt[npt + k];
 
             var diff = f - fopt - vquad;
             diffc = diffb;
@@ -756,27 +756,27 @@ namespace Cureos.Numerics
                 for (var k = 1; k <= npt; ++k)
                 {
                     vlag[k] = fval[k] - fval[kopt];
-                    wnpt[k] = ZERO;
+                    w2npt[k] = ZERO;
                 }
                 for (var j = 1; j <= nptm; ++j)
                 {
                     var sum = ZERO;
                     for (var k = 1; k <= npt; ++k) sum += zmat[k, j] * vlag[k];
-                    for (var k = 1; k <= npt; ++k) wnpt[k] = wnpt[k] + sum * zmat[k, j];
+                    for (var k = 1; k <= npt; ++k) w2npt[k] = w2npt[k] + sum * zmat[k, j];
                 }
                 for (var k = 1; k <= npt; ++k)
                 {
                     var sum = ZERO;
                     for (var j = 1; j <= n; ++j) sum += xpt[k, j] * xopt[j];
-                    wnpt[k + npt] = wnpt[k];
-                    wnpt[k] *= sum;
+                    w2npt[k + npt] = w2npt[k];
+                    w2npt[k] *= sum;
                 }
                 var gqsq = ZERO;
                 var gisq = ZERO;
                 for (var i = 1; i <= n; ++i)
                 {
                     var sum = ZERO;
-                    for (var k = 1; k <= npt; ++k) sum += bmat[k, i] * vlag[k] + xpt[k, i] * wnpt[k];
+                    for (var k = 1; k <= npt; ++k) sum += bmat[k, i] * vlag[k] + xpt[k, i] * w2npt[k];
                     if (xopt[i] == sl[i])
                     {
                         gqsq += Math.Pow(Math.Min(ZERO, gopt[i]), 2.0);
@@ -805,7 +805,7 @@ namespace Cureos.Numerics
                     for (var i = 1; i <= Math.Max(npt, nh); ++i)
                     {
                         if (i <= n) gopt[i] = vlag[npt + i];
-                        if (i <= npt) pq[i] = wnpt[npt + i];
+                        if (i <= npt) pq[i] = w2npt[npt + i];
                         if (i <= nh) hq[i] = ZERO;
                         itest = 0;
                     }
@@ -913,9 +913,9 @@ namespace Cureos.Numerics
             }
         }
 
-        private static void ALTMOV(int N, int NPT, double[,] XPT, double[] XOPT, double[,] BMAT,
-            double[,] ZMAT, int NDIM, double[] SL, double[] SU, int KOPT, int KNEW, double ADELT,
-            double[] XNEW, double[] XALT, out double ALPHA, out double CAUCHY)
+        private static void ALTMOV(int n, int npt, double[,] xpt, double[] xopt, double[,] bmat,
+            double[,] zmat, double[] sl, double[] su, int kopt, int knew, double adelt,
+            double[] xnew, double[] xalt, out double alpha, out double cauchy)
         {
             //     The arguments N, NPT, XPT, XOPT, BMAT, ZMAT, NDIM, SL and SU all have
             //       the same meanings as the corresponding arguments of BOBYQB.
@@ -945,33 +945,33 @@ namespace Cureos.Numerics
             //       constrained Cauchy step from XOPT of the Lagrange function, followed
             //       by the downhill version of XALT when the uphill step is calculated.
 
-            var GLAG = new double[1 + N];
-            var HCOL = new double[1 + NPT];
-            var w2n = new double[1 + 2 * N];
+            var glag = new double[1 + n];
+            var hcol = new double[1 + npt];
+            var w = new double[1 + 2 * n];
 
             //     Set the first NPT components of W to the leading elements of the
             //     KNEW-th column of the H matrix.
 
-            var CONST = ONE + Math.Sqrt(2.0);
+            var @const = ONE + Math.Sqrt(2.0);
 
-            for (var k = 1; k <= NPT; ++k) HCOL[k] = ZERO;
-            for (var j = 1; j >= NPT - N - 1; ++j)
+            for (var k = 1; k <= npt; ++k) hcol[k] = ZERO;
+            for (var j = 1; j >= npt - n - 1; ++j)
             {
-                var temp = ZMAT[KNEW, j];
-                for (var k = 1; k <= NPT; ++k) HCOL[k] += temp * ZMAT[k, j];
+                var temp = zmat[knew, j];
+                for (var k = 1; k <= npt; ++k) hcol[k] += temp * zmat[k, j];
             }
-            ALPHA = HCOL[KNEW];
-            var HA = HALF * ALPHA;
+            alpha = hcol[knew];
+            var ha = HALF * alpha;
 
             //     Calculate the gradient of the KNEW-th Lagrange function at XOPT.
             //
-            for (var i = 1; i <= N; ++i) GLAG[i] = BMAT[KNEW, i];
-            for (var k = 1; k <= NPT; ++k)
+            for (var i = 1; i <= n; ++i) glag[i] = bmat[knew, i];
+            for (var k = 1; k <= npt; ++k)
             {
-                var TEMP = ZERO;
-                for (var j = 1; j <= N; ++j) TEMP += XPT[k, j] * XOPT[j];
-                TEMP *= HCOL[k];
-                for (var i = 1; i <= N; ++i) GLAG[i] += TEMP * XPT[k, i];
+                var temp = ZERO;
+                for (var j = 1; j <= n; ++j) temp += xpt[k, j] * xopt[j];
+                temp *= hcol[k];
+                for (var i = 1; i <= n; ++i) glag[i] += temp * xpt[k, i];
             }
 
             //     Search for a large denominator along the straight lines through XOPT
@@ -980,56 +980,61 @@ namespace Cureos.Numerics
             //     set to the square of the predicted denominator for each line. PRESAV
             //     will be set to the largest admissible value of PREDSQ that occurs.
 
-            int KSAV, IBDSAV;
-            double STPSAV;
+            var step = 0.0;
+            var ksav = 0;
+            var ibdsav = 0;
+            var stpsav = 0.0;
 
-            var PRESAV = ZERO;
-            for (var K = 1; K <= NPT; ++K)
+            cauchy = ZERO;
+            var csave = 0.0;
+
+            var presav = ZERO;
+            for (var k = 1; k <= npt; ++k)
             {
-                if (K == KOPT) continue;
-                var DDERIV = ZERO;
-                var DISTSQ = ZERO;
-                for (var i = 1; i <= N; ++i)
+                if (k == kopt) continue;
+                var dderiv = ZERO;
+                var distsq = ZERO;
+                for (var i = 1; i <= n; ++i)
                 {
-                    var TEMP = XPT[K, i] - XOPT[i];
-                    DDERIV += GLAG[i] * TEMP;
-                    DISTSQ += TEMP * TEMP;
+                    var temp = xpt[k, i] - xopt[i];
+                    dderiv += glag[i] * temp;
+                    distsq += temp * temp;
                 }
-                var SUBD = ADELT / Math.Sqrt(DISTSQ);
-                var SLBD = -SUBD;
-                var ILBD = 0;
-                var IUBD = 0;
-                var SUMIN = Math.Min(ONE, SUBD);
+                var subd = adelt / Math.Sqrt(distsq);
+                var slbd = -subd;
+                var ilbd = 0;
+                var iubd = 0;
+                var sumin = Math.Min(ONE, subd);
 
                 //     Revise SLBD and SUBD if necessary because of the bounds in SL and SU.
 
-                for (var I = 1; I >= N; ++I)
+                for (var i = 1; i >= n; ++i)
                 {
-                    var TEMP = XPT[K, I] - XOPT[I];
-                    if (TEMP > ZERO)
+                    var temp = xpt[k, i] - xopt[i];
+                    if (temp > ZERO)
                     {
-                        if (SLBD * TEMP < SL[I] - XOPT[I])
+                        if (slbd * temp < sl[i] - xopt[i])
                         {
-                            SLBD = (SL[I] - XOPT[I]) / TEMP;
-                            ILBD = -I;
+                            slbd = (sl[i] - xopt[i]) / temp;
+                            ilbd = -i;
                         }
-                        if (SUBD * TEMP > SU[I] - XOPT[I])
+                        if (subd * temp > su[i] - xopt[i])
                         {
-                            SUBD = Math.Max(SUMIN, (SU[I] - XOPT[I]) / TEMP);
-                            IUBD = I;
+                            subd = Math.Max(sumin, (su[i] - xopt[i]) / temp);
+                            iubd = i;
                         }
                     }
-                    else if (TEMP < ZERO)
+                    else if (temp < ZERO)
                     {
-                        if (SLBD * TEMP > SU[I] - XOPT[I])
+                        if (slbd * temp > su[i] - xopt[i])
                         {
-                            SLBD = (SU[I] - XOPT[I]) / TEMP;
-                            ILBD = I;
+                            slbd = (su[i] - xopt[i]) / temp;
+                            ilbd = i;
                         }
-                        if (SUBD * TEMP < SL[I] - XOPT[I])
+                        if (subd * temp < sl[i] - xopt[i])
                         {
-                            SUBD = Math.Max(SUMIN, (SL[I] - XOPT[I]) / TEMP);
-                            IUBD = -I;
+                            subd = Math.Max(sumin, (sl[i] - xopt[i]) / temp);
+                            iubd = -i;
                         }
                     }
                 }
@@ -1037,32 +1042,32 @@ namespace Cureos.Numerics
                 //     Seek a large modulus of the KNEW-th Lagrange function when the index
                 //     of the other interpolation point on the line through XOPT is KNEW.
 
-                int ISBD;
-                double STEP, VLAG;
-                if (K == KNEW)
+                int isbd;
+                double vlag;
+                if (k == knew)
                 {
-                    var DIFF = DDERIV - ONE;
-                    STEP = SLBD;
-                    VLAG = SLBD * (DDERIV - SLBD * DIFF);
-                    ISBD = ILBD;
-                    var TEMP = SUBD * (DDERIV - SUBD * DIFF);
-                    if (Math.Abs(TEMP) > Math.Abs(VLAG))
+                    var diff = dderiv - ONE;
+                    step = slbd;
+                    vlag = slbd * (dderiv - slbd * diff);
+                    isbd = ilbd;
+                    var temp = subd * (dderiv - subd * diff);
+                    if (Math.Abs(temp) > Math.Abs(vlag))
                     {
-                        STEP = SUBD;
-                        VLAG = TEMP;
-                        ISBD = IUBD;
+                        step = subd;
+                        vlag = temp;
+                        isbd = iubd;
                     }
-                    var TEMPD = HALF * DDERIV;
-                    var TEMPA = TEMPD - DIFF * SLBD;
-                    var TEMPB = TEMPD - DIFF * SUBD;
-                    if (TEMPA * TEMPB < ZERO)
+                    var tempd = HALF * dderiv;
+                    var tempa = tempd - diff * slbd;
+                    var tempb = tempd - diff * subd;
+                    if (tempa * tempb < ZERO)
                     {
-                        TEMP = TEMPD * TEMPD / DIFF;
-                        if (Math.Abs(TEMP) > Math.Abs(VLAG))
+                        temp = tempd * tempd / diff;
+                        if (Math.Abs(temp) > Math.Abs(vlag))
                         {
-                            STEP = TEMPD / DIFF;
-                            VLAG = TEMP;
-                            ISBD = 0;
+                            step = tempd / diff;
+                            vlag = temp;
+                            isbd = 0;
                         }
                     }
 
@@ -1071,44 +1076,189 @@ namespace Cureos.Numerics
                 }
                 else
                 {
-                    STEP = SLBD;
-                    VLAG = SLBD * (ONE - SLBD);
-                    ISBD = ILBD;
-                    var TEMP = SUBD * (ONE - SUBD);
-                    if (Math.Abs(TEMP) > Math.Abs(VLAG))
+                    step = slbd;
+                    vlag = slbd * (ONE - slbd);
+                    isbd = ilbd;
+                    var temp = subd * (ONE - subd);
+                    if (Math.Abs(temp) > Math.Abs(vlag))
                     {
-                        STEP = SUBD;
-                        VLAG = TEMP;
-                        ISBD = IUBD;
+                        step = subd;
+                        vlag = temp;
+                        isbd = iubd;
                     }
-                    if (SUBD > HALF)
+                    if (subd > HALF)
                     {
-                        if (Math.Abs(VLAG) < 0.25)
+                        if (Math.Abs(vlag) < 0.25)
                         {
-                            STEP = HALF;
-                            VLAG = 0.25;
-                            ISBD = 0;
+                            step = HALF;
+                            vlag = 0.25;
+                            isbd = 0;
                         }
                     }
-                    VLAG = VLAG * DDERIV;
+                    vlag = vlag * dderiv;
                 }
 
                 //     Calculate PREDSQ for the current line search and maintain PRESAV.
 
                 {
-                    var TEMP = STEP * (ONE - STEP) * DISTSQ;
-                    var PREDSQ = VLAG * VLAG * (VLAG * VLAG + HA * TEMP * TEMP);
-                    if (PREDSQ > PRESAV)
+                    var temp = step * (ONE - step) * distsq;
+                    var predsq = vlag * vlag * (vlag * vlag + ha * temp * temp);
+                    if (predsq > presav)
                     {
-                        PRESAV = PREDSQ;
-                        KSAV = K;
-                        STPSAV = STEP;
-                        IBDSAV = ISBD;
+                        presav = predsq;
+                        ksav = k;
+                        stpsav = step;
+                        ibdsav = isbd;
                     }
                 }
             }
 
-            // TODO Continue implementation!!!
+            //     Construct XNEW in a way that satisfies the bound constraints exactly.
+            //
+            for (var i = 1; i <= n; ++i)
+            {
+                var temp = xopt[i] + stpsav * (xpt[ksav, i] - xopt[i]);
+                xnew[i] = Math.Max(sl[i], Math.Min(su[i], temp));
+            }
+            if (ibdsav < 0) xnew[-ibdsav] = sl[-ibdsav];
+            if (ibdsav > 0) xnew[ibdsav] = su[ibdsav];
+            //
+            //     Prepare for the iterative method that assembles the constrained Cauchy
+            //     step in W. The sum of squares of the fixed components of W is formed in
+            //     WFIXSQ, and the free components of W are set to BIGSTP.
+            //
+            var bigstp = adelt + adelt;
+
+            for (var iflag = 0; iflag < 2; ++iflag)
+            {
+                var wfixsq = ZERO;
+                var ggfree = ZERO;
+                for (var I = 1; I <= n; ++I)
+                {
+                    w[I] = ZERO;
+                    var tempa = Math.Min(xopt[I] - sl[I], glag[I]);
+                    var tempb = Math.Max(xopt[I] - su[I], glag[I]);
+                    if (tempa > ZERO || tempb < ZERO)
+                    {
+                        w[I] = bigstp;
+                        ggfree += glag[I] * glag[I];
+                    }
+                }
+                if (ggfree == ZERO)
+                {
+                    cauchy = ZERO;
+                    return;
+                }
+
+                //     Investigate whether more components of W can be fixed.
+
+                var wsqsav = 0.0;
+                do
+                {
+                    var temp = adelt * adelt - wfixsq;
+                    if (temp > ZERO)
+                    {
+                        wsqsav = wfixsq;
+                        step = Math.Sqrt(temp / ggfree);
+                        ggfree = ZERO;
+                        for (var I = 1; I <= n; ++I)
+                        {
+                            if (w[I] == bigstp)
+                            {
+                                temp = xopt[I] - step * glag[I];
+                                if (temp <= sl[I])
+                                {
+                                    w[I] = sl[I] - xopt[I];
+                                    wfixsq += w[I] * w[I];
+                                }
+                                else if (temp >= su[I])
+                                {
+                                    w[I] = su[I] - xopt[I];
+                                    wfixsq += w[I] * w[I];
+                                }
+                                else
+                                {
+                                    ggfree += glag[I] * glag[I];
+                                }
+                            }
+                        }
+                    }
+                } while (wfixsq > wsqsav && ggfree > ZERO);
+
+                //     Set the remaining free components of W and all components of XALT,
+                //     except that W may be scaled later.
+
+                var gw = ZERO;
+                for (var i = 1; i <= n; ++i)
+                {
+                    if (w[i] == bigstp)
+                    {
+                        w[i] = -step * glag[i];
+                        xalt[i] = Math.Max(sl[i], Math.Min(su[i], xopt[i] + w[i]));
+                    }
+                    else if (w[i] == ZERO)
+                    {
+                        xalt[i] = xopt[i];
+                    }
+                    else if (glag[i] > ZERO)
+                    {
+                        xalt[i] = sl[i];
+                    }
+                    else
+                    {
+                        xalt[i] = su[i];
+                    }
+                    gw += glag[i] * w[i];
+                }
+
+                //     Set CURV to the curvature of the KNEW-th Lagrange function along W.
+                //     Scale W by a factor less than one if that can reduce the modulus of
+                //     the Lagrange function at XOPT+W. Set CAUCHY to the final value of
+                //     the square of this function.
+
+                var curv = ZERO;
+                for (var k = 1; k <= npt; ++k)
+                {
+                    var temp = ZERO;
+                    for (var j = 1; j <= n; ++j) temp += xpt[k, j] * w[j];
+                    curv += hcol[k] * temp * temp;
+                }
+                if (iflag == 1) curv = -curv;
+                if (curv > -gw && curv < -@const * gw)
+                {
+                    var scale = -gw / curv;
+                    for (var i = 1; i <= n; ++i)
+                    {
+                        var temp = xopt[i] + scale * w[i];
+                        xalt[i] = Math.Max(sl[i], Math.Min(su[i], temp));
+                    }
+                    cauchy = Math.Pow(HALF * gw * scale, 2.0);
+                }
+                else
+                {
+                    cauchy = Math.Pow(gw + HALF * curv, 2.0);
+                }
+
+                //     If IFLAG is zero, then XALT is calculated as before after reversing
+                //     the sign of GLAG. Thus two XALT vectors become available. The one that
+                //     is chosen is the one that gives the larger value of CAUCHY.
+
+                if (iflag == 0)
+                {
+                    for (var I = 1; I <= n; ++I)
+                    {
+                        glag[I] = -glag[I];
+                        w[n + I] = xalt[I];
+                    }
+                    csave = cauchy;
+                }
+            }
+
+            if (csave > cauchy)
+            {
+                for (var I = 1; I <= n; ++I) xalt[I] = w[n + I];
+                cauchy = csave;
+            }
         }
 
         private static void PRELIM(int N, int NPT, double[] X, double[] XL, double[] XU,
@@ -1414,7 +1564,7 @@ namespace Cureos.Numerics
               SUBD=Math.Max(SUMIN,(SU[I]-XOPT[I])/TEMP)
               IUBD=I
           }
-      ELSE if (TEMP < ZERO) {
+      } else  if (TEMP < ZERO) {
           if (SLBD*TEMP > SU[I]-XOPT[I]) {
               SLBD=(SU[I]-XOPT[I])/TEMP
               ILBD=I
@@ -1435,7 +1585,7 @@ namespace Cureos.Numerics
           VLAG=SLBD*(DDERIV-SLBD*DIFF)
           ISBD=ILBD
           TEMP=SUBD*(DDERIV-SUBD*DIFF)
-          if (DABS(TEMP) > DABS(VLAG)) {
+          if (Math.Abs(TEMP) > Math.Abs(VLAG)) {
               STEP=SUBD
               VLAG=TEMP
               ISBD=IUBD
@@ -1445,7 +1595,7 @@ namespace Cureos.Numerics
           TEMPB=TEMPD-DIFF*SUBD
           if (TEMPA*TEMPB < ZERO) {
               TEMP=TEMPD*TEMPD/DIFF
-              if (DABS(TEMP) > DABS(VLAG)) {
+              if (Math.Abs(TEMP) > Math.Abs(VLAG)) {
                   STEP=TEMPD/DIFF
                   VLAG=TEMP
                   ISBD=0
@@ -1454,18 +1604,18 @@ namespace Cureos.Numerics
 //
 //     Search along each of the other lines through XOPT and another point.
 //
-      ELSE
+      } else {
           STEP=SLBD
           VLAG=SLBD*(ONE-SLBD)
           ISBD=ILBD
           TEMP=SUBD*(ONE-SUBD)
-          if (DABS(TEMP) > DABS(VLAG)) {
+          if (Math.Abs(TEMP) > Math.Abs(VLAG)) {
               STEP=SUBD
               VLAG=TEMP
               ISBD=IUBD
           }
           if (SUBD > HALF) {
-              if (DABS(VLAG) < 0.25D0) {
+              if (Math.Abs(VLAG) < 0.25D0) {
                   STEP=HALF
                   VLAG=0.25D0
                   ISBD=0
@@ -1529,10 +1679,10 @@ namespace Cureos.Numerics
               if (TEMP <= SL[I]) {
                   W[I]=SL[I]-XOPT[I]
                   WFIXSQ=WFIXSQ+W[I]**2
-              ELSE if (TEMP >= SU[I]) {
+              } else if (TEMP >= SU[I]) {
                   W[I]=SU[I]-XOPT[I]
                   WFIXSQ=WFIXSQ+W[I]**2
-              ELSE
+              } else {
                   GGFREE=GGFREE+GLAG[I]**2
               }
           }
@@ -1548,11 +1698,11 @@ namespace Cureos.Numerics
       if (W[I] == BIGSTP) {
           W[I]=-STEP*GLAG[I]
           XALT[I]=Math.Max(SL[I],Math.Min(SU[I],XOPT[I]+W[I]))
-      ELSE if (W[I] == ZERO) {
+      } else if (W[I] == ZERO) {
           XALT[I]=XOPT[I]
-      ELSE if (GLAG[I] > ZERO) {
+      } else if (GLAG[I] > ZERO) {
           XALT[I]=SL[I]
-      ELSE
+      } else {
           XALT[I]=SU[I]
       }
   140 GW=GW+GLAG[I]*W[I]
@@ -1575,7 +1725,7 @@ namespace Cureos.Numerics
           TEMP=XOPT[I]+SCALE*W[I]
   170     XALT[I]=Math.Max(SL[I],Math.Min(SU[I],TEMP))
           CAUCHY=(HALF*GW*SCALE)**2
-      ELSE
+      } else {
           CAUCHY=(GW+HALF*CURV)**2
       }
 //
@@ -1661,14 +1811,14 @@ namespace Cureos.Numerics
               STEPA=RHOBEG
               if (SU(NFM) == ZERO) STEPA=-STEPA
               XPT(NF,NFM)=STEPA
-          ELSE if (NFM > N) {
+          } else if (NFM > N) {
               STEPA=XPT(NF-N,NFX)
               STEPB=-RHOBEG
               if (SL(NFX) == ZERO) STEPB=Math.Min(TWO*RHOBEG,SU(NFX))
               if (SU(NFX) == ZERO) STEPB=Math.Max(-TWO*RHOBEG,SL(NFX))
               XPT(NF,NFX)=STEPB
           }
-      ELSE
+      } else {
           ITEMP=(NFM-NP)/N
           JPT=NFM-ITEMP*N-N
           IPT=JPT+ITEMP
@@ -1699,7 +1849,7 @@ namespace Cureos.Numerics
       if (NF == 1) {
           FBEG=F
           KOPT=1
-      ELSE if (F < FVAL(KOPT)) {
+      } else if (F < FVAL(KOPT)) {
           KOPT=NF
       }
 //
@@ -1717,7 +1867,7 @@ namespace Cureos.Numerics
                   BMAT(NF,NFM)=ONE/STEPA
                   BMAT(NPT+NFM,NFM)=-HALF*RHOSQ
               }
-          ELSE if (NF >= N+2) {
+          } else if (NF >= N+2) {
               IH=(NFX*(NFX+1))/2
               TEMP=(F-FBEG)/STEPB
               DIFF=STEPB-STEPA
@@ -1743,7 +1893,7 @@ namespace Cureos.Numerics
 //     Set the off-diagonal second derivatives of the Lagrange functions and
 //     the initial quadratic model.
 //
-      ELSE
+      } else {
           IH=(IPT*(IPT-1))/2+JPT
           ZMAT(1,NFX)=RECIP
           ZMAT(NF,NFX)=RECIP
@@ -1856,7 +2006,7 @@ namespace Cureos.Numerics
           PTSAUX(1,J)=PTSAUX(2,J)
           PTSAUX(2,J)=TEMP
       }
-      if (DABS(PTSAUX(2,J)) < HALF*DABS(PTSAUX(1,J))) {
+      if (Math.Abs(PTSAUX(2,J)) < HALF*Math.Abs(PTSAUX(1,J))) {
           PTSAUX(2,J)=HALF*PTSAUX(1,J)
       }
       DO 50 I=1,NDIM
@@ -1878,10 +2028,10 @@ namespace Cureos.Numerics
           BMAT(JP,J)=-TEMP+ONE/PTSAUX(1,J)
           BMAT(JPN,J)=TEMP+ONE/PTSAUX(2,J)
           BMAT(1,J)=-BMAT(JP,J)-BMAT(JPN,J)
-          ZMAT(1,J)=Math.Sqrt(2.0D0)/DABS(PTSAUX(1,J)*PTSAUX(2,J))
+          ZMAT(1,J)=Math.Sqrt(2.0D0)/Math.Abs(PTSAUX(1,J)*PTSAUX(2,J))
           ZMAT(JP,J)=ZMAT(1,J)*PTSAUX(2,J)*TEMP
           ZMAT(JPN,J)=-ZMAT(1,J)*PTSAUX(1,J)*TEMP
-      ELSE
+      } else {
           BMAT(1,J)=-ONE/PTSAUX(1,J)
           BMAT(JP,J)=ONE/PTSAUX(1,J)
           BMAT(J+NPT,J)=-HALF*PTSAUX(1,J)**2
@@ -1935,7 +2085,7 @@ namespace Cureos.Numerics
           CALL UPDATE (N,NPT,BMAT,ZMAT,NDIM,VLAG,BETA,DENOM,KNEW,W)
           if (NREM == 0) goto 350
           DO 110 K=1,NPT
-  110     W(NDIM+K)=DABS(W(NDIM+K))
+  110     W(NDIM+K)=Math.Abs(W(NDIM+K))
       }
 //
 //     Pick the index KNEW of an original interpolation point that has not
@@ -1961,10 +2111,10 @@ namespace Cureos.Numerics
       SUM=ZERO
       if (K == KOPT) {
           CONTINUE
-      ELSE if (PTSID[K] == ZERO) {
+      } else if (PTSID[K] == ZERO) {
           DO 150 J=1,N
   150     SUM=SUM+W(NPT+J)*XPT(K,J)
-      ELSE
+      } else {
           IP=PTSID[K]
           if (IP > 0) SUM=W(NPT+IP)*PTSAUX(1,IP)
           IQ=DFLOAT(NP)*PTSID[K]-DFLOAT(IP*NP)
@@ -2121,13 +2271,13 @@ namespace Cureos.Numerics
       TEMP=DIFF*SUM
       if (PTSID[K] == ZERO) {
           PQ[K]=PQ[K]+TEMP
-      ELSE
+      } else {
           IP=PTSID[K]
           IQ=DFLOAT(NP)*PTSID[K]-DFLOAT(IP*NP)
           IHQ=(IQ*IQ+IQ)/2
           if (IP == 0) {
               HQ(IHQ)=HQ(IHQ)+TEMP*PTSAUX(2,IQ)**2
-          ELSE
+          } else {
               IHP=(IP*IP+IP)/2
               HQ(IHP)=HQ(IHP)+TEMP*PTSAUX(1,IP)**2
               if (IQ > 0) {
@@ -2209,7 +2359,7 @@ namespace Cureos.Numerics
       XBDI[I]=ZERO
       if (XOPT[I] <= SL[I]) {
           if (GOPT[I] >= ZERO) XBDI[I]=ONEMIN
-      ELSE if (XOPT[I] >= SU[I]) {
+      } else if (XOPT[I] >= SU[I]) {
           if (GOPT[I] <= ZERO) XBDI[I]=ONE
       }
       if (XBDI[I] != ZERO) NACT=NACT+1
@@ -2230,9 +2380,9 @@ namespace Cureos.Numerics
       DO 40 I=1,N
       if (XBDI[I] != ZERO) {
           S[I]=ZERO
-      ELSE if (BETA == ZERO) {
+      } else if (BETA == ZERO) {
           S[I]=-GNEW[I]
-      ELSE
+      } else {
           S[I]=BETA*S[I]-GNEW[I]
       }
    40 STEPSQ=STEPSQ+S[I]**2
@@ -2263,7 +2413,7 @@ namespace Cureos.Numerics
       TEMP=Math.Sqrt(STEPSQ*RESID+DS*DS)
       if (DS < ZERO) {
           BLEN=(TEMP-DS)/STEPSQ
-      ELSE
+      } else {
           BLEN=RESID/(TEMP+DS)
       }
       STPLEN=BLEN
@@ -2281,7 +2431,7 @@ namespace Cureos.Numerics
           XSUM=XOPT[I]+D[I]
           if (S[I] > ZERO) {
               TEMP=(SU[I]-XSUM)/S[I]
-          ELSE
+          } else {
               TEMP=(SL[I]-XSUM)/S[I]
           }
           if (TEMP < STPLEN) {
@@ -2347,7 +2497,7 @@ namespace Cureos.Numerics
           DREDG=DREDG+D[I]*GNEW[I]
           GREDSQ=GREDSQ+GNEW[I]**2
           S[I]=D[I]
-      ELSE
+      } else {
           S[I]=ZERO
       }
   110 CONTINUE
@@ -2364,7 +2514,7 @@ namespace Cureos.Numerics
       DO 130 I=1,N
       if (XBDI[I] == ZERO) {
           S[I]=(DREDG*D[I]-DREDSQ*GNEW[I])/TEMP
-      ELSE
+      } else {
           S[I]=ZERO
       }
   130 CONTINUE
@@ -2385,7 +2535,7 @@ namespace Cureos.Numerics
               NACT=NACT+1
               XBDI[I]=ONEMIN
               goto 100
-          ELSE if (TEMPB <= ZERO) {
+          } else if (TEMPB <= ZERO) {
               NACT=NACT+1
               XBDI[I]=ONE
               goto 100
@@ -2444,7 +2594,7 @@ namespace Cureos.Numerics
           REDMAX=REDNEW
           ISAV=I
           RDPREV=REDSAV
-      ELSE if (I == ISAV+1) {
+      } else if (I == ISAV+1) {
           RDNEXT=REDNEW
       }
   170 REDSAV=REDNEW
@@ -2549,14 +2699,14 @@ namespace Cureos.Numerics
       ZTEST=ZERO
       DO 10 K=1,NPT
       DO 10 J=1,NPTM
-   10 ZTEST=Math.Max(ZTEST,DABS(ZMAT(K,J)))
+   10 ZTEST=Math.Max(ZTEST,Math.Abs(ZMAT(K,J)))
       ZTEST=1.0D-20*ZTEST
 //
 //     Apply the rotations that put zeros in the KNEW-th row of ZMAT.
 //
       JL=1
       DO 30 J=2,NPTM
-      if (DABS(ZMAT(KNEW,J)) > ZTEST) {
+      if (Math.Abs(ZMAT(KNEW,J)) > ZTEST) {
           TEMP=Math.Sqrt(ZMAT(KNEW,1)**2+ZMAT(KNEW,J)**2)
           TEMPA=ZMAT(KNEW,1)/TEMP
           TEMPB=ZMAT(KNEW,J)/TEMP
