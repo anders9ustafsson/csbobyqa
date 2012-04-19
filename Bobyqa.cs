@@ -1865,9 +1865,9 @@ namespace Cureos.Numerics
             }
         }
 
-        private static void TRSBOX(int N, int NPT, double[,] XPT, double[] XOPT, double[] GOPT, 
-            double[] HQ, double[] PQ, double[] SL, double[] SU, double DELTA,
-            double[] XNEW, double[] D, double[] GNEW, out double DSQ, out double CRVMIN)
+        private static void TRSBOX(int n, int npt, double[,] xpt, double[] xopt, double[] gopt,
+            double[] hq, double[] pq, double[] sl, double[] su, double delta,
+            double[] xnew, double[] d, double[] gnew, out double dsq, out double crvmin)
         {
             //     The arguments N, NPT, XPT, XOPT, GOPT, HQ, PQ, SL and SU have the same
             //       meanings as the corresponding arguments of BOBYQB.
@@ -1915,14 +1915,404 @@ namespace Cureos.Numerics
             //       and the reduced D, respectively, where the reduced D is the same as D,
             //       except that the components of the fixed variables are zero.
 
-            var XBDI = new double[1 + N];
-            var S = new double[1 + N];
-            var HS = new double[1 + N];
-            var HRED = new double[1 + N];
+            var xbdi = new double[1 + n];
+            var s = new double[1 + n];
+            var hs = new double[1 + n];
+            var hred = new double[1 + n];
 
-            var ITERC = 0;
-            var NACT = 0;
-            var SQSTP = ZERO;
+            var iterc = 0;
+            var nact = 0;
+            var sqstp = ZERO;
+
+            for (var i = 1; i <= n; ++i)
+            {
+                xbdi[i] = ZERO;
+                if (xopt[i] <= sl[i])
+                    if (gopt[i] >= ZERO) xbdi[i] = ONEMIN;
+                    else if (xopt[i] >= su[i])
+                        if (gopt[i] <= ZERO) xbdi[i] = ONE;
+                if (xbdi[i] != ZERO) ++nact;
+                d[i] = ZERO;
+                gnew[i] = gopt[i];
+            }
+
+            var delsq = delta * delta;
+            var qred = ZERO;
+            crvmin = ONEMIN;
+
+            //     Set the next search direction of the conjugate gradient method. It is
+            //     the steepest descent direction initially and when the iterations are
+            //     restarted because a variable has just been fixed by a bound, and of
+            //     course the components of the fixed variables are zero. ITERMAX is an
+            //     upper bound on the indices of the conjugate gradient iterations.
+
+            double sth;
+
+            var itermax = 0;
+            var itcsav = 0;
+            var iact = 0;
+
+            var angt = 0.0;
+            var angbd = 0.0;
+            var dredsq = 0.0;
+            var dredg = 0.0;
+            var gredsq = 0.0;
+            var ggsav = 0.0;
+            var rdprev = 0.0;
+            var rdnext = 0.0;
+            var sredg = 0.0;
+            var xsav = 0.0;
+
+            L_20:
+            var beta = ZERO;
+
+            L_30:
+            var stepsq = ZERO;
+
+            for (var i = 1; i <= n; ++i)
+            {
+                if (xbdi[i] != ZERO)
+                    s[i] = ZERO;
+                else if (beta == ZERO)
+                    s[i] = -gnew[i];
+                else
+                    s[i] = beta * s[i] - gnew[i];
+                stepsq += s[i] * s[i];
+            }
+            if (stepsq == ZERO) goto L_190;
+
+            if (beta == ZERO)
+            {
+                gredsq = stepsq;
+                itermax = iterc + n - nact;
+            }
+            if (gredsq * delsq <= 1.0E-4 * qred * qred) goto L_190;
+
+            //     Multiply the search direction by the second derivative matrix of Q and
+            //     calculate some scalars for the choice of steplength. Then set BLEN to
+            //     the length of the the step to the trust region boundary and STPLEN to
+            //     the steplength, ignoring the simple bounds.
+
+            goto L_210;
+
+            L_50:
+            var resid = delsq;
+            var ds = ZERO;
+            var shs = ZERO;
+            for (var i = 1; i <= n; ++i)
+            {
+                if (xbdi[i] == ZERO)
+                {
+                    resid -= d[i] * d[i];
+                    ds += s[i] * d[i];
+                    shs += s[i] * hs[i];
+                }
+            }
+            if (resid <= ZERO) goto L_90;
+
+            var temp = Math.Sqrt(stepsq * resid + ds * ds);
+            var blen = ds < ZERO ? (temp - ds) / stepsq : resid / (temp + ds);
+            var stplen = shs > ZERO ? Math.Min(blen, gredsq / shs) : blen;
+
+            //     Reduce STPLEN if necessary in order to preserve the simple bounds,
+            //     letting IACT be the index of the new constrained variable.
+
+            iact = 0;
+            for (var i = 1; i <= n; ++i)
+            {
+                if (s[i] != ZERO)
+                {
+                    var xsum = xopt[i] + d[i];
+                    if (s[i] > ZERO)
+                    {
+                        temp = (su[i] - xsum) / s[i];
+                    }
+                    else
+                    {
+                        temp = (sl[i] - xsum) / s[i];
+                    }
+                    if (temp < stplen)
+                    {
+                        stplen = temp;
+                        iact = i;
+                    }
+                }
+            }
+
+            //     Update CRVMIN, GNEW and D. Set SDEC to the decrease that occurs in Q.
+
+            var sdec = ZERO;
+            if (stplen > ZERO)
+            {
+                ++iterc;
+                temp = shs / stepsq;
+                if (iact == 0 && temp > ZERO)
+                {
+                    crvmin = Math.Min(crvmin, temp);
+                    if (crvmin == ONEMIN) crvmin = temp;
+                }
+                ggsav = gredsq;
+                gredsq = ZERO;
+                for (var i = 1; i <= n; ++i)
+                {
+                    gnew[i] += stplen * hs[i];
+                    if (xbdi[i] == ZERO) gredsq += gnew[i] * gnew[i];
+                    d[i] += stplen * s[i];
+                }
+                sdec = Math.Max(stplen * (ggsav - HALF * stplen * shs), ZERO);
+                qred += sdec;
+            }
+
+            //     Restart the conjugate gradient method if it has hit a new bound.
+
+            if (iact > 0)
+            {
+                ++nact;
+                xbdi[iact] = ONE;
+                if (s[iact] < ZERO) xbdi[iact] = ONEMIN;
+                delsq -= d[iact] * d[iact];
+                if (delsq <= ZERO) goto L_90;
+                goto L_20;
+            }
+
+            //     If STPLEN is less than BLEN, then either apply another conjugate
+            //     gradient iteration or RETURN.
+
+            if (stplen < blen)
+            {
+                if (iterc == itermax || sdec <= 0.01 * qred) goto L_190;
+                beta = gredsq / ggsav;
+                goto L_30;
+            }
+
+            L_90:
+            crvmin = ZERO;
+
+            //     Prepare for the alternative iteration by calculating some scalars
+            //     and by multiplying the reduced D by the second derivative matrix of
+            //     Q, where S holds the reduced D in the call of GGMULT.
+
+            L_100:
+            if (nact >= n - 1) goto L_190;
+
+            dredsq = ZERO;
+            dredg = ZERO;
+            gredsq = ZERO;
+            for (var i = 1; i <= n; ++i)
+            {
+                if (xbdi[i] == ZERO)
+                {
+                    dredsq += d[i] * d[i];
+                    dredg += d[i] * gnew[i];
+                    gredsq += gnew[i] * gnew[i];
+                    s[i] = d[i];
+                }
+                else
+                {
+                    s[i] = ZERO;
+                }
+            }
+            itcsav = iterc;
+            goto L_210;
+
+            //     Let the search direction S be a linear combination of the reduced D
+            //     and the reduced G that is orthogonal to the reduced D.
+
+            L_120:
+            ++iterc;
+            temp = gredsq * dredsq - dredg * dredg;
+            if (temp <= 1.0E-4 * qred * qred) goto L_190;
+
+            temp = Math.Sqrt(temp);
+            for (var i = 1; i <= n; ++i) s[i] = xbdi[i] == ZERO ? (dredg * d[i] - dredsq * gnew[i]) / temp : ZERO;
+
+            sredg = -temp;
+
+            //     By considering the simple bounds on the variables, calculate an upper
+            //     bound on the tangent of half the angle of the alternative iteration,
+            //     namely ANGBD, except that, if already a free variable has reached a
+            //     bound, there is a branch back to label 100 after fixing that variable.
+
+            angbd = ONE;
+            iact = 0;
+            for (var i = 1; i <= n; ++i)
+            {
+                if (xbdi[i] == ZERO)
+                {
+                    var tempa = xopt[i] + d[i] - sl[i];
+                    var tempb = su[i] - xopt[i] - d[i];
+                    if (tempa <= ZERO)
+                    {
+                        ++nact;
+                        xbdi[i] = ONEMIN;
+                        goto L_100;
+                    }
+                    if (tempb <= ZERO)
+                    {
+                        ++nact;
+                        xbdi[i] = ONE;
+                        goto L_100;
+                    }
+                    var ssq = d[i] * d[i] + s[i] * s[i];
+                    temp = ssq - Math.Pow(xopt[i] - sl[i], 2.0);
+                    if (temp > ZERO)
+                    {
+                        temp = Math.Sqrt(temp) - s[i];
+                        if (angbd * temp > tempa)
+                        {
+                            angbd = tempa / temp;
+                            iact = i;
+                            xsav = ONEMIN;
+                        }
+                    }
+                    temp = ssq - Math.Pow(su[i] - xopt[i], 2.0);
+                    if (temp > ZERO)
+                    {
+                        temp = Math.Sqrt(temp) + s[i];
+                        if (angbd * temp > tempb)
+                        {
+                            angbd = tempb / temp;
+                            iact = i;
+                            xsav = ONE;
+                        }
+                    }
+                }
+            }
+
+            //     Calculate HHD and some curvatures for the alternative iteration.
+
+            goto L_210;
+
+            L_150:
+            shs = ZERO;
+            var dhs = ZERO;
+            var dhd = ZERO;
+            for (var i = 1; i <= n; ++i)
+            {
+                if (xbdi[i] == ZERO)
+                {
+                    shs += s[i] * hs[i];
+                    dhs += d[i] * hs[i];
+                    dhd += d[i] * hred[i];
+                }
+            }
+
+            //     Seek the greatest reduction in Q for a range of equally spaced values
+            //     of ANGT in [0,ANGBD], where ANGT is the tangent of half the angle of
+            //     the alternative iteration.
+
+            var redmax = ZERO;
+            var isav = 0;
+            var redsav = ZERO;
+            var iu = (int)(17.0 * angbd + 3.1);
+            for (var i = 1; i <= iu; ++i)
+            {
+                angt = angbd * i / iu;
+                sth = (angt + angt) / (ONE + angt * angt);
+                temp = shs + angt * (angt * dhd - dhs - dhs);
+                var rednew = sth * (angt * dredg - sredg - HALF * sth * temp);
+                if (rednew > redmax)
+                {
+                    redmax = rednew;
+                    isav = i;
+                    rdprev = redsav;
+                }
+                else if (i == isav + 1)
+                {
+                    rdnext = rednew;
+                }
+                redsav = rednew;
+            }
+
+            //     Return if the reduction is zero. Otherwise, set the sine and cosine
+            //     of the angle of the alternative iteration, and calculate SDEC.
+
+            if (isav == 0) goto L_190;
+            if (isav < iu)
+            {
+                temp = (rdnext - rdprev) / (redmax + redmax - rdprev - rdnext);
+                angt = angbd * (isav + HALF * temp) / iu;
+            }
+            var cth = (ONE - angt * angt) / (ONE + angt * angt);
+            sth = (angt + angt) / (ONE + angt * angt);
+            temp = shs + angt * (angt * dhd - dhs - dhs);
+            sdec = sth * (angt * dredg - sredg - HALF * sth * temp);
+            if (sdec <= ZERO) goto L_190;
+
+            //     Update GNEW, D and HRED. If the angle of the alternative iteration
+            //     is restricted by a bound on a free variable, that variable is fixed
+            //     at the bound.
+
+            dredg = ZERO;
+            gredsq = ZERO;
+            for (var i = 1; i <= n; ++i)
+            {
+                gnew[i] = gnew[i] + (cth - ONE) * hred[i] + sth * hs[i];
+                if (xbdi[i] == ZERO)
+                {
+                    d[i] = cth * d[i] + sth * s[i];
+                    dredg += d[i] * gnew[i];
+                    gredsq += gnew[i] * gnew[i];
+                }
+                hred[i] = cth * hred[i] + sth * hs[i];
+            }
+            qred += sdec;
+            if (iact > 0 && isav == iu)
+            {
+                ++nact;
+                xbdi[iact] = xsav;
+                goto L_100;
+            }
+
+            //     If SDEC is sufficiently small, then RETURN after setting XNEW to
+            //     XOPT+D, giving careful attention to the bounds.
+
+            if (sdec > 0.01 * qred) goto L_120;
+
+            L_190:
+            dsq = ZERO;
+            for (var i = 1; i <= n; ++i)
+            {
+                xnew[i] = Math.Max(Math.Min(xopt[i] + d[i], su[i]), sl[i]);
+                if (xbdi[i] == ONEMIN) xnew[i] = sl[i];
+                if (xbdi[i] == ONE) xnew[i] = su[i];
+                d[i] = xnew[i] - xopt[i];
+                dsq += d[i] * d[i];
+            }
+            return;
+
+            //     The following instructions multiply the current S-vector by the second
+            //     derivative matrix of the quadratic model, putting the product in HS.
+            //     They are reached from three different parts of the software above and
+            //     they can be regarded as an external subroutine.
+
+            L_210:
+            var ih = 0;
+            for (var j = 1; j <= n; ++j)
+            {
+                hs[j] = ZERO;
+                for (var i = 1; i <= j; ++i)
+                {
+                    ++ih;
+                    if (i < j) hs[j] += hq[ih] * s[i];
+                    hs[i] += hq[ih] * s[j];
+                }
+            }
+            for (var k = 1; k <= npt; ++k)
+            {
+                if (pq[k] != ZERO)
+                {
+                    temp = ZERO;
+                    for (var j = 1; j <= n; ++j) temp += xpt[k, j] * s[j];
+                    temp *= pq[k];
+                    for (var i = 1; i <= n; ++i) hs[i] += temp * xpt[k, i];
+                }
+            }
+            if (crvmin != ZERO) goto L_50;
+            if (iterc > itcsav) goto L_150;
+
+            for (var i = 1; i <= n; ++i) hred[i] = hs[i];
+            goto L_120;
         }
 
         private static void UPDATE(int N, int NPT, double[,] BMAT, double[,] ZMAT, int NDIM, double[] VLAG, double BETA, double DENOM, double KNEW, double[] W)
