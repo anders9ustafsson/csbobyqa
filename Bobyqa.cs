@@ -419,8 +419,8 @@ namespace Cureos.Numerics
             L_190:
             nfsav = nf;
             kbase = kopt;
-            RESCUE(n, npt, xl, xu, iprint, maxfun, xbase, xpt, fval, xopt, gopt, hq, pq, bmat, zmat, ndim, sl, su,
-                   ref nf, delta, ref kopt, vlag);
+            RESCUE(calfun, n, npt, xl, xu, iprint, maxfun, xbase, xpt, fval, xopt, gopt, hq, pq, bmat, zmat, ndim, sl,
+                   su, ref nf, delta, ref kopt, vlag);
 
             //     XOPT is updated now in case the branch below to label 720 is taken.
             //     Any updating of GOPT occurs after the branch below to label 20, which
@@ -683,7 +683,9 @@ namespace Cureos.Numerics
             //     Update BMAT and ZMAT, so that the KNEW-th interpolation point can be
             //     moved. Also update the second derivative terms of the model.
 
-            UPDATE(n, npt, bmat, zmat, ndim, vlag, beta, denom, knew);
+            var w = new double[1 + ndim];
+            UPDATE(n, npt, bmat, zmat, ndim, vlag, beta, denom, knew, w);
+
             var pqold = pq[knew];
             pq[knew] = ZERO;
             {
@@ -1437,10 +1439,10 @@ namespace Cureos.Numerics
             }
         }
 
-        public static void RESCUE(int N, int NPT, double[] XL, double[] XU, int IPRINT, 
-            int MAXFUN, double[] XBASE, double[,] XPT, double[] FVAL, double[] XOPT, double[] GOPT, 
-            double[] HQ, double[] PQ, double[,] BMAT, double[,] ZMAT, int NDIM, double[] SL, double[] SU, 
-            ref int NF, double DELTA, ref int KOPT, double[] VLAG)
+        public static void RESCUE(Func<int, double[], double> calfun,  int n, int npt, double[] xl, double[] xu, int iprint,
+            int maxfun, double[] xbase, double[,] xpt, double[] fval, double[] xopt, double[] gopt,
+            double[] hq, double[] pq, double[,] bmat, double[,] zmat, int ndim, double[] sl, double[] su,
+            ref int nf, double delta, ref int kopt, double[] vlag)
         {
             //     The arguments N, NPT, XL, XU, IPRINT, MAXFUN, XBASE, XPT, FVAL, XOPT,
             //       GOPT, HQ, PQ, BMAT, ZMAT, NDIM, SL and SU have the same meanings as
@@ -1478,15 +1480,389 @@ namespace Cureos.Numerics
             //       p=0, respectively.
             //     The first NDIM+NPT elements of the array W are used for working space. 
 
-            var PTSAUX = new double[1 + 2, 1 + N];
-            var PTSID = new double[1 + NPT];
-            var W = new double[1 + NDIM + NPT];
+            var ptsaux = new double[1 + 2, 1 + n];
+            var ptsid = new double[1 + npt];
+            var w = new double[1 + ndim + npt];
 
             //     Set some constants.
             //
-            var NP = N + 1;
-            var SFRAC = HALF / NP;
-            var NPTM = NPT - NP;
+            var np = n + 1;
+            var sfrac = HALF / np;
+            var nptm = npt - np;
+
+            //     Shift the interpolation points so that XOPT becomes the origin, and set
+            //     the elements of ZMAT to zero. The value of SUMPQ is required in the
+            //     updating of HQ below. The squares of the distances from XOPT to the
+            //     other interpolation points are set at the end of W. Increments of WINC
+            //     may be added later to these squares to balance the consideration of
+            //     the choice of point that is going to become current.
+
+            var sumpq = ZERO;
+            var winc = ZERO;
+            for (var k = 1; k <= npt; ++k)
+            {
+                var distsq = ZERO;
+                for (var j = 1; j <= n; ++j)
+                {
+                    xpt[k, j] -= xopt[j];
+                    distsq += xpt[k, j] * xpt[k, j];
+                }
+                sumpq += pq[k];
+                w[ndim + k] = distsq;
+                winc = Math.Max(winc, distsq);
+                for (var j = 1; j <= nptm; ++j) zmat[k, j] = ZERO;
+            }
+
+            //     Update HQ so that HQ and PQ define the second derivatives of the model
+            //     after XBASE has been shifted to the trust region centre.
+
+            {
+                var ih = 0;
+                for (var j = 1; j <= n; ++j)
+                {
+                    w[j] = HALF * sumpq * xopt[j];
+                    for (var k = 1; k <= npt; ++k) w[j] += pq[k] * xpt[k, j];
+                    for (var i = 1; i <= j; ++i) hq[++ih] += w[i] * xopt[j] + w[j] * xopt[i];
+                }
+            }
+
+            //     Shift XBASE, SL, SU and XOPT. Set the elements of BMAT to zero, and
+            //     also set the elements of PTSAUX.
+
+            for (var j = 1; j <= n; ++j)
+            {
+                xbase[j] += xopt[j];
+                sl[j] -= xopt[j];
+                su[j] -= xopt[j];
+                xopt[j] = ZERO;
+                ptsaux[1, j] = Math.Min(delta, su[j]);
+                ptsaux[2, j] = Math.Max(-delta, sl[j]);
+                if (ptsaux[1, j] + ptsaux[2, j] < ZERO)
+                {
+                    var temp = ptsaux[1, j];
+                    ptsaux[1, j] = ptsaux[2, j];
+                    ptsaux[2, j] = temp;
+                }
+                if (Math.Abs(ptsaux[2, j]) < HALF * Math.Abs(ptsaux[1, j])) ptsaux[2, j] = HALF * ptsaux[1, j];
+                for (var i = 1; i <= ndim; ++i) bmat[i, j] = ZERO;
+            }
+            var fbase = fval[kopt];
+
+            //     Set the identifiers of the artificial interpolation points that are
+            //     along a coordinate direction from XOPT, and set the corresponding
+            //     nonzero elements of BMAT and ZMAT.
+
+            ptsid[1] = sfrac;
+            for (var j = 1; j <= n; ++j)
+            {
+                var jp = j + 1;
+                var jpn = jp + n;
+                ptsid[jp] = j + sfrac;
+                if (jpn <= npt)
+                {
+                    ptsid[jpn] = (double)j / np + sfrac;
+                    var temp = ONE / (ptsaux[1, j] - ptsaux[2, j]);
+                    bmat[jp, j] = -temp + ONE / ptsaux[1, j];
+                    bmat[jpn, j] = temp + ONE / ptsaux[2, j];
+                    bmat[1, j] = -bmat[jp, j] - bmat[jpn, j];
+                    zmat[1, j] = Math.Sqrt(2.0) / Math.Abs(ptsaux[1, j] * ptsaux[2, j]);
+                    zmat[jp, j] = zmat[1, j] * ptsaux[2, j] * temp;
+                    zmat[jpn, j] = -zmat[1, j] * ptsaux[1, j] * temp;
+                }
+                else
+                {
+                    bmat[1, j] = -ONE / ptsaux[1, j];
+                    bmat[jp, j] = ONE / ptsaux[1, j];
+                    bmat[j + npt, j] = -HALF * ptsaux[1, j] * ptsaux[1, j];
+                }
+            }
+
+            //     Set any remaining identifiers with their nonzero elements of ZMAT.
+
+            if (npt >= n + np)
+            {
+                for (var k = 2 * np; k <= npt; ++k)
+                {
+                    var iw = (int)(k - np - HALF) / n;
+                    var ip = k - np - iw * n;
+                    var iq = ip + iw;
+                    if (iq > n) iq = iq - n;
+                    ptsid[k] = ip + (double)iq / np + sfrac;
+                    var temp = ONE / (ptsaux[1, ip] * ptsaux[1, iq]);
+                    zmat[1, k - np] = temp;
+                    zmat[ip + 1, k - np] = -temp;
+                    zmat[iq + 1, k - np] = -temp;
+                    zmat[k, k - np] = temp;
+                }
+            }
+            var nrem = npt;
+            var kold = 1;
+            var knew = kopt;
+
+            //     Reorder the provisional points in the way that exchanges PTSID(KOLD)
+            //     with PTSID(KNEW).
+
+            var beta = 0.0;
+            var denom = 0.0;
+
+            do
+            {
+                for (var j = 1; j <= n; ++j)
+                {
+                    var temp = bmat[kold, j];
+                    bmat[kold, j] = bmat[knew, j];
+                    bmat[knew, j] = temp;
+                }
+                for (var j = 1; j <= nptm; ++j)
+                {
+                    var temp = zmat[kold, j];
+                    zmat[kold, j] = zmat[knew, j];
+                    zmat[knew, j] = temp;
+                }
+                ptsid[kold] = ptsid[knew];
+                ptsid[knew] = ZERO;
+                w[ndim + knew] = ZERO;
+                --nrem;
+                if (knew != kopt)
+                {
+                    var temp = vlag[kold];
+                    vlag[kold] = vlag[knew];
+                    vlag[knew] = temp;
+
+                    //     Update the BMAT and ZMAT matrices so that the status of the KNEW-th
+                    //     interpolation point can be changed from provisional to original. The
+                    //     branch to label 350 occurs if all the original points are reinstated.
+                    //     The nonnegative values of W(NDIM+K) are required in the search below.
+
+                    UPDATE(n, npt, bmat, zmat, ndim, vlag, beta, denom, knew, w);
+                    if (nrem == 0) return;
+                    for (var k = 1; k <= npt; ++k) w[ndim + k] = Math.Abs(w[ndim + k]);
+                }
+
+                //     Pick the index KNEW of an original interpolation point that has not
+                //     yet replaced one of the provisional interpolation points, giving
+                //     attention to the closeness to XOPT and to previous tries with KNEW.
+
+                L_120:
+                var dsqmin = ZERO;
+                for (var k = 1; k <= npt; ++k)
+                {
+                    if (w[ndim + k] > ZERO && (dsqmin == ZERO || w[ndim + k] < dsqmin))
+                    {
+                        knew = k;
+                        dsqmin = w[ndim + k];
+                    }
+                }
+                if (dsqmin == ZERO) break;
+
+                //     Form the W-vector of the chosen original interpolation point.
+
+                for (var j = 1; j <= n; ++j) w[npt + j] = xpt[knew, j];
+                for (var k = 1; k <= npt; ++k)
+                {
+                    var sum = ZERO;
+                    if (k == kopt) continue;
+                    if (ptsid[k] == ZERO)
+                        for (var j = 1; j <= n; ++j) sum += w[npt + j] * xpt[k, j];
+                    else
+                    {
+                        var ip = (int)ptsid[k];
+                        if (ip > 0) sum = w[npt + ip] * ptsaux[1, ip];
+                        var iq = (int)(np * ptsid[k] - ip * np);
+                        if (iq > 0)
+                        {
+                            var iw = ip == 0 ? 2 : 1;
+                            sum += w[npt + iq] * ptsaux[iw, iq];
+                        }
+                    }
+                    w[k] = HALF * sum * sum;
+                }
+
+                //     Calculate VLAG and BETA for the required updating of the H matrix if
+                //     XPT(KNEW,.) is reinstated in the set of interpolation points.
+                //
+                for (var k = 1; k <= npt; ++k)
+                {
+                    var sum = ZERO;
+                    for (var j = 1; j <= n; ++j) sum += bmat[k, j] * w[npt + j];
+                    vlag[k] = sum;
+                }
+                beta = ZERO;
+                for (var j = 1; j <= nptm; ++j)
+                {
+                    var sum = ZERO;
+                    for (var k = 1; k <= npt; ++k) sum += zmat[k, j] * w[k];
+                    beta -= sum * sum;
+                    for (var k = 1; k <= npt; ++k) vlag[k] = vlag[k] + sum * zmat[k, j];
+                }
+                {
+                    var bsum = ZERO;
+                    var distsq = ZERO;
+                    for (var j = 1; j <= n; ++j)
+                    {
+                        var sum = ZERO;
+                        for (var k = 1; k <= npt; ++k) sum += bmat[k, j] * w[k];
+                        var jp = j + npt;
+                        bsum += sum * w[jp];
+                        for (var ip = npt + 1; ip <= ndim; ++ip) sum = sum + bmat[ip, j] * w[ip];
+                        bsum += sum * w[jp];
+                        vlag[jp] = sum;
+                        distsq += xpt[knew, j] * xpt[knew, j];
+                    }
+                    beta += HALF * distsq * distsq - bsum;
+                    vlag[kopt] += ONE;
+                }
+
+                //     KOLD is set to the index of the provisional interpolation point that is
+                //     going to be deleted to make way for the KNEW-th original interpolation
+                //     point. The choice of KOLD is governed by the avoidance of a small value
+                //     of the denominator in the updating calculation of UPDATE.
+
+                denom = ZERO;
+                var vlmxsq = ZERO;
+                for (var k = 1; k <= npt; ++k)
+                {
+                    if (ptsid[k] != ZERO)
+                    {
+                        var hdiag = ZERO;
+                        for (var j = 1; j <= nptm; ++j) hdiag += zmat[k, j] * zmat[k, j];
+                        var den = beta * hdiag + vlag[k] * vlag[k];
+                        if (den > denom)
+                        {
+                            kold = k;
+                            denom = den;
+                        }
+                    }
+                    vlmxsq = Math.Max(vlmxsq, vlag[k] * vlag[k]);
+                }
+
+                if (denom <= 0.01 * vlmxsq)
+                {
+                    w[ndim + knew] = -w[ndim + knew] - winc;
+                    goto L_120;
+                }
+            } while (true);
+
+            //     When do loop is completed, all the final positions of the interpolation
+            //     points have been chosen although any changes have not been included yet
+            //     in XPT. Also the final BMAT and ZMAT matrices are complete, but, apart
+            //     from the shift of XBASE, the updating of the quadratic model remains to
+            //     be done. The following cycle through the new interpolation points begins
+            //     by putting the new point in XPT(KPT,.) and by setting PQ(KPT) to zero,
+            //     except that a RETURN occurs if MAXFUN prohibits another value of F.
+
+            for (var kpt = 1; kpt <= npt; ++kpt)
+            {
+                if (ptsid[kpt] == ZERO) continue;
+                if (nf >= maxfun)
+                {
+                    nf = -1;
+                    return;
+                }
+
+                var ih = 0;
+                for (var j = 1; j <= n; ++j)
+                {
+                    w[j] = xpt[kpt, j];
+                    xpt[kpt, j] = ZERO;
+                    var temp = pq[kpt] * w[j];
+                    for (var i = 1; i <= j; ++i) hq[++ih] += temp * w[i];
+                }
+                pq[kpt] = ZERO;
+
+                var ip = (int)ptsid[kpt];
+                var iq = (int)(np * ptsid[kpt] - ip * np);
+                var xp = 0.0;
+                var xq = 0.0;
+                if (ip > 0)
+                {
+                    xp = ptsaux[1, ip];
+                    xpt[kpt, ip] = xp;
+                }
+                if (iq > 0)
+                {
+                    xq = ip == 0 ? ptsaux[2, iq] : ptsaux[1, iq];
+                    xpt[kpt, iq] = xq;
+                }
+
+                //     Set VQUAD to the value of the current model at the new point.
+
+                var vquad = fbase;
+                var ihp = 0;
+                if (ip > 0)
+                {
+                    ihp = (ip + ip * ip) / 2;
+                    vquad += xp * (gopt[ip] + HALF * xp * hq[ihp]);
+                }
+                if (iq > 0)
+                {
+                    var ihq = (iq + iq * iq) / 2;
+                    vquad += xq * (gopt[iq] + HALF * xq * hq[ihq]);
+                    if (ip > 0)
+                    {
+                        var iw = Math.Max(ihp, ihq) - Math.Abs(ip - iq);
+                        vquad += xp * xq * hq[iw];
+                    }
+                }
+                for (var k = 1; k <= npt; ++k)
+                {
+                    var temp = ZERO;
+                    if (ip > 0) temp += xp * xpt[k, ip];
+                    if (iq > 0) temp += xq * xpt[k, iq];
+                    vquad += HALF * pq[k] * temp * temp;
+                }
+
+                //     Calculate F at the new interpolation point, and set DIFF to the factor
+                //     that is going to multiply the KPT-th Lagrange function when the model
+                //     is updated to provide interpolation to the new function value.
+
+                for (var i = 1; i <= n; ++i)
+                {
+                    w[i] = Math.Min(Math.Max(xl[i], xbase[i] + xpt[kpt, i]), xu[i]);
+                    if (xpt[kpt, i] == sl[i]) w[i] = xl[i];
+                    if (xpt[kpt, i] == su[i]) w[i] = xu[i];
+                }
+
+                ++nf;
+                var f = calfun(n, w);
+                if (iprint == 3) Console.WriteLine(L400, nf, f, w.PART(1, n).FORMAT());
+                fval[kpt] = f;
+                if (f < fval[kopt]) kopt = kpt;
+                var diff = f - vquad;
+
+                //     Update the quadratic model. The RETURN from the subroutine occurs when
+                //     all the new interpolation points are included in the model.
+
+                for (var i = 1; i <= n; ++i) gopt[i] += diff * bmat[kpt, i];
+                for (var k = 1; k <= npt; ++k)
+                {
+                    var sum = ZERO;
+                    for (var j = 1; j <= nptm; ++j) sum += zmat[k, j] * zmat[kpt, j];
+                    var temp = diff * sum;
+                    if (ptsid[k] == ZERO)
+                        pq[k] += temp;
+                    else
+                    {
+                        ip = (int)ptsid[k];
+                        iq = (int)(np * ptsid[k] - ip * np);
+                        var ihq = (iq * iq + iq) / 2;
+                        if (ip == 0)
+                            hq[ihq] += temp * ptsaux[2, iq] * ptsaux[2, iq];
+                        else
+                        {
+                            ihp = (ip * ip + ip) / 2;
+                            hq[ihp] += temp * ptsaux[1, ip] * ptsaux[1, ip];
+                            if (iq > 0)
+                            {
+                                hq[ihq] += temp * ptsaux[1, iq] * ptsaux[1, iq];
+                                var iw = Math.Max(ihp, ihq) - Math.Abs(iq - ip);
+                                hq[iw] += temp * ptsaux[1, ip] * ptsaux[1, iq];
+                            }
+                        }
+                    }
+                }
+                ptsid[kpt] = ZERO;
+            }
         }
 
         private static void TRSBOX(int N, int NPT, double[,] XPT, double[] XOPT, double[] GOPT, 
@@ -1549,9 +1925,8 @@ namespace Cureos.Numerics
             var SQSTP = ZERO;
         }
 
-        private static void UPDATE(int N, int NPT, double[,] BMAT, double[,] ZMAT, int NDIM, double[] VLAG, double BETA, double DENOM, double KNEW)
+        private static void UPDATE(int N, int NPT, double[,] BMAT, double[,] ZMAT, int NDIM, double[] VLAG, double BETA, double DENOM, double KNEW, double[] W)
         {
-            //
             //     The arrays BMAT and ZMAT are updated, as required by the new position
             //     of the interpolation point that has the index KNEW. The vector VLAG has
             //     N+NPT components, set on entry to the first NPT and last N components
@@ -1560,10 +1935,7 @@ namespace Cureos.Numerics
             //     with that name, and DENOM is set to the denominator of the updating
             //     formula. Elements of ZMAT may be treated as zero if their moduli are
             //     at most ZTEST.
-
             //     The first NDIM elements of W are used for working space.
-
-            var W = new double[1 + NDIM];
 
             //     Set some constants.
 
@@ -1614,393 +1986,6 @@ namespace Cureos.Numerics
     }
 }
 /*
-      SUBROUTINE RESCUE (N,NPT,XL,XU,IPRINT,MAXFUN,XBASE,XPT,
-     1  FVAL,XOPT,GOPT,HQ,PQ,BMAT,ZMAT,NDIM,SL,SU,NF,DELTA,
-     2  KOPT,VLAG,PTSAUX,PTSID,W)
-      IMPLICIT REAL*8 (A-H,O-Z)
-      DIMENSION XL(*),XU(*),XBASE(*),XPT(NPT,*),FVAL(*),XOPT(*),
-     1  GOPT(*),HQ(*),PQ(*),BMAT(NDIM,*),ZMAT(NPT,*),SL(*),SU(*),
-     2  VLAG(*),PTSAUX(2,*),PTSID(*),W(*)
-//
-//     The arguments N, NPT, XL, XU, IPRINT, MAXFUN, XBASE, XPT, FVAL, XOPT,
-//       GOPT, HQ, PQ, BMAT, ZMAT, NDIM, SL and SU have the same meanings as
-//       the corresponding arguments of BOBYQB on the entry to RESCUE.
-//     NF is maintained as the number of calls of CALFUN so far, except that
-//       NF is set to -1 if the value of MAXFUN prevents further progress.
-//     KOPT is maintained so that FVAL(KOPT) is the least calculated function
-//       value. Its correct value must be given on entry. It is updated if a
-//       new least function value is found, but the corresponding changes to
-//       XOPT and GOPT have to be made later by the calling program.
-//     DELTA is the current trust region radius.
-//     VLAG is a working space vector that will be used for the values of the
-//       provisional Lagrange functions at each of the interpolation points.
-//       They are part of a product that requires VLAG to be of length NDIM.
-//     PTSAUX is also a working space array. For J=1,2,...,N, PTSAUX(1,J) and
-//       PTSAUX(2,J) specify the two positions of provisional interpolation
-//       points when a nonzero step is taken along e_J (the J-th coordinate
-//       direction) through XBASE+XOPT, as specified below. Usually these
-//       steps have length DELTA, but other lengths are chosen if necessary
-//       in order to satisfy the given bounds on the variables.
-//     PTSID is also a working space array. It has NPT components that denote
-//       provisional new positions of the original interpolation points, in
-//       case changes are needed to restore the linear independence of the
-//       interpolation conditions. The K-th point is a candidate for change
-//       if and only if PTSID[K] is nonzero. In this case let p and q be the
-//       integer parts of PTSID[K] and (PTSID[K]-p) multiplied by N+1. If p
-//       and q are both positive, the step from XBASE+XOPT to the new K-th
-//       interpolation point is PTSAUX(1,p)*e_p + PTSAUX(1,q)*e_q. Otherwise
-//       the step is PTSAUX(1,p)*e_p or PTSAUX(2,q)*e_q in the cases q=0 or
-//       p=0, respectively.
-//     The first NDIM+NPT elements of the array W are used for working space. 
-//     The final elements of BMAT and ZMAT are set in a well-conditioned way
-//       to the values that are appropriate for the new interpolation points.
-//     The elements of GOPT, HQ and PQ are also revised to the values that are
-//       appropriate to the final quadratic model.
-//
-//     Set some constants.
-//
-      HALF=0.5D0
-      ONE=1.0D0
-      ZERO=0.0D0
-      NP=N+1
-      SFRAC=HALF/DFLOAT(NP)
-      NPTM=NPT-NP
-//
-//     Shift the interpolation points so that XOPT becomes the origin, and set
-//     the elements of ZMAT to zero. The value of SUMPQ is required in the
-//     updating of HQ below. The squares of the distances from XOPT to the
-//     other interpolation points are set at the end of W. Increments of WINC
-//     may be added later to these squares to balance the consideration of
-//     the choice of point that is going to become current.
-//
-      SUMPQ=ZERO
-      WINC=ZERO
-      DO 20 K=1,NPT
-      DISTSQ=ZERO
-      DO 10 J=1,N
-      XPT(K,J)=XPT(K,J)-XOPT[J]
-   10 DISTSQ=DISTSQ+XPT(K,J)**2
-      SUMPQ=SUMPQ+PQ[K]
-      W(NDIM+K)=DISTSQ
-      WINC=Math.Max(WINC,DISTSQ)
-      DO 20 J=1,NPTM
-   20 ZMAT(K,J)=ZERO
-//
-//     Update HQ so that HQ and PQ define the second derivatives of the model
-//     after XBASE has been shifted to the trust region centre.
-//
-      IH=0
-      DO 40 J=1,N
-      W[J]=HALF*SUMPQ*XOPT[J]
-      DO 30 K=1,NPT
-   30 W[J]=W[J]+PQ[K]*XPT(K,J)
-      DO 40 I=1,J
-      IH=IH+1
-   40 HQ(IH)=HQ(IH)+W[I]*XOPT[J]+W[J]*XOPT[I]
-//
-//     Shift XBASE, SL, SU and XOPT. Set the elements of BMAT to zero, and
-//     also set the elements of PTSAUX.
-//
-      DO 50 J=1,N
-      XBASE[J]=XBASE[J]+XOPT[J]
-      SL[J]=SL[J]-XOPT[J]
-      SU[J]=SU[J]-XOPT[J]
-      XOPT[J]=ZERO
-      PTSAUX(1,J)=Math.Min(DELTA,SU[J])
-      PTSAUX(2,J)=Math.Max(-DELTA,SL[J])
-      if (PTSAUX(1,J)+PTSAUX(2,J) < ZERO) {
-          TEMP=PTSAUX(1,J)
-          PTSAUX(1,J)=PTSAUX(2,J)
-          PTSAUX(2,J)=TEMP
-      }
-      if (Math.Abs(PTSAUX(2,J)) < HALF*Math.Abs(PTSAUX(1,J))) {
-          PTSAUX(2,J)=HALF*PTSAUX(1,J)
-      }
-      DO 50 I=1,NDIM
-   50 BMAT(I,J)=ZERO
-      FBASE=FVAL(KOPT)
-//
-//     Set the identifiers of the artificial interpolation points that are
-//     along a coordinate direction from XOPT, and set the corresponding
-//     nonzero elements of BMAT and ZMAT.
-//
-      PTSID(1)=SFRAC
-      DO 60 J=1,N
-      JP=J+1
-      JPN=JP+N
-      PTSID(JP)=DFLOAT[J]+SFRAC
-      if (JPN <= NPT) {
-          PTSID(JPN)=DFLOAT[J]/DFLOAT(NP)+SFRAC
-          TEMP=ONE/(PTSAUX(1,J)-PTSAUX(2,J))
-          BMAT(JP,J)=-TEMP+ONE/PTSAUX(1,J)
-          BMAT(JPN,J)=TEMP+ONE/PTSAUX(2,J)
-          BMAT(1,J)=-BMAT(JP,J)-BMAT(JPN,J)
-          ZMAT(1,J)=Math.Sqrt(2.0D0)/Math.Abs(PTSAUX(1,J)*PTSAUX(2,J))
-          ZMAT(JP,J)=ZMAT(1,J)*PTSAUX(2,J)*TEMP
-          ZMAT(JPN,J)=-ZMAT(1,J)*PTSAUX(1,J)*TEMP
-      } else {
-          BMAT(1,J)=-ONE/PTSAUX(1,J)
-          BMAT(JP,J)=ONE/PTSAUX(1,J)
-          BMAT(J+NPT,J)=-HALF*PTSAUX(1,J)**2
-      }
-   60 CONTINUE
-//
-//     Set any remaining identifiers with their nonzero elements of ZMAT.
-//
-      if (NPT >= N+NP) {
-          DO 70 K=2*NP,NPT
-          IW=(DFLOAT(K-NP)-HALF)/DFLOAT(N)
-          IP=K-NP-IW*N
-          IQ=IP+IW
-          if (IQ > N) IQ=IQ-N
-          PTSID[K]=DFLOAT(IP)+DFLOAT(IQ)/DFLOAT(NP)+SFRAC
-          TEMP=ONE/(PTSAUX(1,IP)*PTSAUX(1,IQ))
-          ZMAT(1,K-NP)=TEMP
-          ZMAT(IP+1,K-NP)=-TEMP
-          ZMAT(IQ+1,K-NP)=-TEMP
-   70     ZMAT(K,K-NP)=TEMP
-      }
-      NREM=NPT
-      KOLD=1
-      KNEW=KOPT
-//
-//     Reorder the provisional points in the way that exchanges PTSID(KOLD)
-//     with PTSID(KNEW).
-//
-   80 DO 90 J=1,N
-      TEMP=BMAT(KOLD,J)
-      BMAT(KOLD,J)=BMAT(KNEW,J)
-   90 BMAT(KNEW,J)=TEMP
-      DO 100 J=1,NPTM
-      TEMP=ZMAT(KOLD,J)
-      ZMAT(KOLD,J)=ZMAT(KNEW,J)
-  100 ZMAT(KNEW,J)=TEMP
-      PTSID(KOLD)=PTSID(KNEW)
-      PTSID(KNEW)=ZERO
-      W(NDIM+KNEW)=ZERO
-      NREM=NREM-1
-      if (KNEW != KOPT) {
-          TEMP=VLAG(KOLD)
-          VLAG(KOLD)=VLAG(KNEW)
-          VLAG(KNEW)=TEMP
-//
-//     Update the BMAT and ZMAT matrices so that the status of the KNEW-th
-//     interpolation point can be changed from provisional to original. The
-//     branch to label 350 occurs if all the original points are reinstated.
-//     The nonnegative values of W(NDIM+K) are required in the search below.
-//
-          CALL UPDATE (N,NPT,BMAT,ZMAT,NDIM,VLAG,BETA,DENOM,KNEW,W)
-          if (NREM == 0) goto 350
-          DO 110 K=1,NPT
-  110     W(NDIM+K)=Math.Abs(W(NDIM+K))
-      }
-//
-//     Pick the index KNEW of an original interpolation point that has not
-//     yet replaced one of the provisional interpolation points, giving
-//     attention to the closeness to XOPT and to previous tries with KNEW.
-//
-  120 DSQMIN=ZERO
-      DO 130 K=1,NPT
-      if (W(NDIM+K) > ZERO) {
-          if (DSQMIN == ZERO || W(NDIM+K) < DSQMIN) {
-              KNEW=K
-              DSQMIN=W(NDIM+K)
-          }
-      }
-  130 CONTINUE
-      if (DSQMIN == ZERO) goto 260
-//
-//     Form the W-vector of the chosen original interpolation point.
-//
-      DO 140 J=1,N
-  140 W(NPT+J)=XPT(KNEW,J)
-      DO 160 K=1,NPT
-      SUM=ZERO
-      if (K == KOPT) {
-          CONTINUE
-      } else if (PTSID[K] == ZERO) {
-          DO 150 J=1,N
-  150     SUM=SUM+W(NPT+J)*XPT(K,J)
-      } else {
-          IP=PTSID[K]
-          if (IP > 0) SUM=W(NPT+IP)*PTSAUX(1,IP)
-          IQ=DFLOAT(NP)*PTSID[K]-DFLOAT(IP*NP)
-          if (IQ > 0) {
-              IW=1
-              if (IP == 0) IW=2
-              SUM=SUM+W(NPT+IQ)*PTSAUX(IW,IQ)
-          }
-      }
-  160 W[K]=HALF*SUM*SUM
-//
-//     Calculate VLAG and BETA for the required updating of the H matrix if
-//     XPT(KNEW,.) is reinstated in the set of interpolation points.
-//
-      DO 180 K=1,NPT
-      SUM=ZERO
-      DO 170 J=1,N
-  170 SUM=SUM+BMAT(K,J)*W(NPT+J)
-  180 VLAG[K]=SUM
-      BETA=ZERO
-      DO 200 J=1,NPTM
-      SUM=ZERO
-      DO 190 K=1,NPT
-  190 SUM=SUM+ZMAT(K,J)*W[K]
-      BETA=BETA-SUM*SUM
-      DO 200 K=1,NPT
-  200 VLAG[K]=VLAG[K]+SUM*ZMAT(K,J)
-      BSUM=ZERO
-      DISTSQ=ZERO
-      DO 230 J=1,N
-      SUM=ZERO
-      DO 210 K=1,NPT
-  210 SUM=SUM+BMAT(K,J)*W[K]
-      JP=J+NPT
-      BSUM=BSUM+SUM*W(JP)
-      DO 220 IP=NPT+1,NDIM
-  220 SUM=SUM+BMAT(IP,J)*W(IP)
-      BSUM=BSUM+SUM*W(JP)
-      VLAG(JP)=SUM
-  230 DISTSQ=DISTSQ+XPT(KNEW,J)**2
-      BETA=HALF*DISTSQ*DISTSQ+BETA-BSUM
-      VLAG(KOPT)=VLAG(KOPT)+ONE
-//
-//     KOLD is set to the index of the provisional interpolation point that is
-//     going to be deleted to make way for the KNEW-th original interpolation
-//     point. The choice of KOLD is governed by the avoidance of a small value
-//     of the denominator in the updating calculation of UPDATE.
-//
-      DENOM=ZERO
-      VLMXSQ=ZERO
-      DO 250 K=1,NPT
-      if (PTSID[K] != ZERO) {
-          HDIAG=ZERO
-          DO 240 J=1,NPTM
-  240     HDIAG=HDIAG+ZMAT(K,J)**2
-          DEN=BETA*HDIAG+VLAG[K]**2
-          if (DEN > DENOM) {
-              KOLD=K
-              DENOM=DEN
-          }
-      }
-  250 VLMXSQ=Math.Max(VLMXSQ,VLAG[K]**2)
-      if (DENOM <= 1.0D-2*VLMXSQ) {
-          W(NDIM+KNEW)=-W(NDIM+KNEW)-WINC
-          goto 120
-      }
-      goto 80
-//
-//     When label 260 is reached, all the final positions of the interpolation
-//     points have been chosen although any changes have not been included yet
-//     in XPT. Also the final BMAT and ZMAT matrices are complete, but, apart
-//     from the shift of XBASE, the updating of the quadratic model remains to
-//     be done. The following cycle through the new interpolation points begins
-//     by putting the new point in XPT(KPT,.) and by setting PQ(KPT) to zero,
-//     except that a RETURN occurs if MAXFUN prohibits another value of F.
-//
-  260 DO 340 KPT=1,NPT
-      if (PTSID(KPT) == ZERO) goto 340
-      if (NF >= MAXFUN) {
-          NF=-1
-          goto 350
-      }
-      IH=0
-      DO 270 J=1,N
-      W[J]=XPT(KPT,J)
-      XPT(KPT,J)=ZERO
-      TEMP=PQ(KPT)*W[J]
-      DO 270 I=1,J
-      IH=IH+1
-  270 HQ(IH)=HQ(IH)+TEMP*W[I]
-      PQ(KPT)=ZERO
-      IP=PTSID(KPT)
-      IQ=DFLOAT(NP)*PTSID(KPT)-DFLOAT(IP*NP)
-      if (IP > 0) {
-          XP=PTSAUX(1,IP)
-          XPT(KPT,IP)=XP
-      }
-      if (IQ > 0) {
-          XQ=PTSAUX(1,IQ)
-          if (IP == 0) XQ=PTSAUX(2,IQ)
-          XPT(KPT,IQ)=XQ
-      }
-//
-//     Set VQUAD to the value of the current model at the new point.
-//
-      VQUAD=FBASE
-      if (IP > 0) {
-          IHP=(IP+IP*IP)/2
-          VQUAD=VQUAD+XP*(GOPT(IP)+HALF*XP*HQ(IHP))
-      }
-      if (IQ > 0) {
-          IHQ=(IQ+IQ*IQ)/2
-          VQUAD=VQUAD+XQ*(GOPT(IQ)+HALF*XQ*HQ(IHQ))
-          if (IP > 0) {
-              IW=MAX0(IHP,IHQ)-IABS(IP-IQ)
-              VQUAD=VQUAD+XP*XQ*HQ(IW)
-          }
-      }
-      DO 280 K=1,NPT
-      TEMP=ZERO
-      if (IP > 0) TEMP=TEMP+XP*XPT(K,IP)
-      if (IQ > 0) TEMP=TEMP+XQ*XPT(K,IQ)
-  280 VQUAD=VQUAD+HALF*PQ[K]*TEMP*TEMP
-//
-//     Calculate F at the new interpolation point, and set DIFF to the factor
-//     that is going to multiply the KPT-th Lagrange function when the model
-//     is updated to provide interpolation to the new function value.
-//
-      DO 290 I=1,N
-      W[I]=Math.Min(Math.Max(XL[I],XBASE[I]+XPT(KPT,I)),XU[I])
-      if (XPT(KPT,I) == SL[I]) W[I]=XL[I]
-      if (XPT(KPT,I) == SU[I]) W[I]=XU[I]
-  290 CONTINUE
-      NF=NF+1
-      CALL CALFUN (N,W,F)
-      if (IPRINT == 3) {
-          PRINT 300, NF,F,(W[I],I=1,N)
-  300     FORMAT (/4X,'Function number',I6,'    F =',1PD18.10,
-     1      '    The corresponding X is:'/(2X,5D15.6))
-      }
-      FVAL(KPT)=F
-      if (F < FVAL(KOPT)) KOPT=KPT
-      DIFF=F-VQUAD
-//
-//     Update the quadratic model. The RETURN from the subroutine occurs when
-//     all the new interpolation points are included in the model.
-//
-      DO 310 I=1,N
-  310 GOPT[I]=GOPT[I]+DIFF*BMAT(KPT,I)
-      DO 330 K=1,NPT
-      SUM=ZERO
-      DO 320 J=1,NPTM
-  320 SUM=SUM+ZMAT(K,J)*ZMAT(KPT,J)
-      TEMP=DIFF*SUM
-      if (PTSID[K] == ZERO) {
-          PQ[K]=PQ[K]+TEMP
-      } else {
-          IP=PTSID[K]
-          IQ=DFLOAT(NP)*PTSID[K]-DFLOAT(IP*NP)
-          IHQ=(IQ*IQ+IQ)/2
-          if (IP == 0) {
-              HQ(IHQ)=HQ(IHQ)+TEMP*PTSAUX(2,IQ)**2
-          } else {
-              IHP=(IP*IP+IP)/2
-              HQ(IHP)=HQ(IHP)+TEMP*PTSAUX(1,IP)**2
-              if (IQ > 0) {
-                  HQ(IHQ)=HQ(IHQ)+TEMP*PTSAUX(1,IQ)**2
-                  IW=MAX0(IHP,IHQ)-IABS(IQ-IP)
-                  HQ(IW)=HQ(IW)+TEMP*PTSAUX(1,IP)*PTSAUX(1,IQ)
-              }
-          }
-      }
-  330 CONTINUE
-      PTSID(KPT)=ZERO
-  340 CONTINUE
-  350 RETURN
-      END
-
-
       SUBROUTINE TRSBOX (N,NPT,XPT,XOPT,GOPT,HQ,PQ,SL,SU,DELTA,
      1  XNEW,D,GNEW,XBDI,S,HS,HRED,DSQ,CRVMIN)
       IMPLICIT REAL*8 (A-H,O-Z)
@@ -2370,7 +2355,7 @@ namespace Cureos.Numerics
       if (PQ[K] != ZERO) {
           TEMP=ZERO
           DO 230 J=1,N
-  230     TEMP=TEMP+XPT(K,J)*S[J]
+  230     TEMP=TEMP+XPT[K,J]*S[J]
           TEMP=TEMP*PQ[K]
           DO 240 I=1,N
   240     HS[I]=HS[I]+TEMP*XPT(K,I)
@@ -2406,7 +2391,7 @@ namespace Cureos.Numerics
       ZTEST=ZERO
       DO 10 K=1,NPT
       DO 10 J=1,NPTM
-   10 ZTEST=Math.Max(ZTEST,Math.Abs(ZMAT(K,J)))
+   10 ZTEST=Math.Max(ZTEST,Math.Abs(ZMAT[K,J]))
       ZTEST=1.0D-20*ZTEST
 //
 //     Apply the rotations that put zeros in the KNEW-th row of ZMAT.
@@ -2418,8 +2403,8 @@ namespace Cureos.Numerics
           TEMPA=ZMAT(KNEW,1)/TEMP
           TEMPB=ZMAT(KNEW,J)/TEMP
           DO 20 I=1,NPT
-          TEMP=TEMPA*ZMAT(I,1)+TEMPB*ZMAT(I,J)
-          ZMAT(I,J)=TEMPA*ZMAT(I,J)-TEMPB*ZMAT(I,1)
+          TEMP=TEMPA*ZMAT(I,1)+TEMPB*ZMAT[I,J]
+          ZMAT[I,J]=TEMPA*ZMAT[I,J]-TEMPB*ZMAT(I,1)
    20     ZMAT(I,1)=TEMP
       }
       ZMAT(KNEW,J)=ZERO
@@ -2451,8 +2436,8 @@ namespace Cureos.Numerics
       TEMPA=(ALPHA*VLAG(JP)-TAU*W(JP))/DENOM
       TEMPB=(-BETA*W(JP)-TAU*VLAG(JP))/DENOM
       DO 60 I=1,JP
-      BMAT(I,J)=BMAT(I,J)+TEMPA*VLAG[I]+TEMPB*W[I]
-      if (I > NPT) BMAT(JP,I-NPT)=BMAT(I,J)
+      BMAT[I,J]=BMAT[I,J]+TEMPA*VLAG[I]+TEMPB*W[I]
+      if (I > NPT) BMAT(JP,I-NPT)=BMAT[I,J]
    60 CONTINUE
       RETURN
       END
