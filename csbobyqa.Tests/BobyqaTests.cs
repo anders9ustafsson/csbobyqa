@@ -1,7 +1,31 @@
-﻿namespace Cureos.Numerics.Tests
+﻿using System;
+using NUnit.Framework;
+
+namespace Cureos.Numerics.Tests
 {
+    [TestFixture]
     public class BobyqaTests
     {
+        [Test]
+        public void WillItRun()
+        {
+            var xl = new[] { 0.0, -1.0e30, -1.0e30 };
+            var xu = new[] { 0.0, 1.0e30, 1.0e30 };
+            var x = new[] { 0.0, 1.0, -1.0 };
+
+            Bobyqa.BOBYQA(IntermedRosenbrock, 2, 4, x, xl, xu, 0.1, 1.0e-6, 3, 1000);
+
+            Assert.AreEqual(-1.0, x[1], 1.0e-5);
+            Assert.AreEqual(1.0, x[2], 1.0e-5);
+        }
+
+        /// <summary>
+        /// Intermediate version of Rosenbrock's problem.
+        /// </summary>
+        private static double IntermedRosenbrock(int n, double[] x)
+        {
+            return 10.0 * Math.Pow(x[1] * x[1] - x[2], 2.0) + Math.Pow(1.0 + x[1], 2.0);
+        }
     }
 }
 /*

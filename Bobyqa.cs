@@ -18,15 +18,15 @@ namespace Cureos.Numerics
         private static readonly string LF = Environment.NewLine;
         private static readonly string L320 = LF + "Return from BOBYQA because of much cancellation in a denominator.";
         private static readonly string L390 = LF + "Return from BOBYQA because CALFUN has been called MAXFUN times.";
-        private static readonly string L400 = LF + "Function number {0:I6}    F ={1,18:E10}" + LF +
-                                              "The corresponding X is:{2}";
-        private static readonly string L710 = LF + "Least value of F ={0,15:E9}" + LF + "The corresponding X is:{1}";
+        private static readonly string L400 = LF + "Function number {0,6}    F ={1,18:E10}" + LF +
+                                              "The corresponding X is: {2}";
+        private static readonly string L710 = LF + "Least value of F ={0,15:E9}" + LF + "The corresponding X is: {1}";
 
         #endregion
 
         #region METHODS
 
-        private static void BOBYQA(Func<int, double[], double> calfun, int n, int npt, double[] x,
+        public static void BOBYQA(Func<int, double[], double> calfun, int n, int npt, double[] x,
                                    double[] xl, double[] xu, double rhobeg, double rhoend, int iprint, int maxfun)
         {
             //     This subroutine seeks the least value of a function of many variables,
@@ -486,7 +486,7 @@ namespace Cureos.Numerics
             }
 
             beta = ZERO;
-            for (var jj = 1; jj >= nptm; ++jj)
+            for (var jj = 1; jj <= nptm; ++jj)
             {
                 var sum = ZERO;
                 for (var k = 1; k <= npt; ++k) sum += zmat[k, jj] * w2npt[k];
@@ -879,12 +879,12 @@ namespace Cureos.Numerics
                 delta = Math.Max(delta, rho);
                 if (iprint >= 2)
                 {
-                    var bestX = new double[n];
+                    var bestX = new double[1 + n];
                     for (var i = 1; i <= n; ++i) bestX[i] = xbase[i] + xopt[i];
 
                     if (iprint >= 3) Console.WriteLine();
-                    Console.WriteLine("New RHO ={0,11:E4}" + LF + "Number of function values ={1:I6}", rho, nf);
-                    Console.WriteLine(LF + "Least value of F ={0,23:F15}" + LF + "The corresponding X is: {1}",
+                    Console.WriteLine("New RHO ={0,11:E4}" + LF + "Number of function values ={1,6}", rho, nf);
+                    Console.WriteLine(LF + "Least value of F ={0,23:F15}" + LF + "The corresponding X is:{1}",
                                       fval[kopt], bestX.PART(1, n).FORMAT());
                 }
                 ntrits = 0;
@@ -957,7 +957,7 @@ namespace Cureos.Numerics
             var @const = ONE + Math.Sqrt(2.0);
 
             for (var k = 1; k <= npt; ++k) hcol[k] = ZERO;
-            for (var j = 1; j >= npt - n - 1; ++j)
+            for (var j = 1; j <= npt - n - 1; ++j)
             {
                 var temp = zmat[knew, j];
                 for (var k = 1; k <= npt; ++k) hcol[k] += temp * zmat[k, j];
@@ -1439,7 +1439,7 @@ namespace Cureos.Numerics
             }
         }
 
-        public static void RESCUE(Func<int, double[], double> calfun,  int n, int npt, double[] xl, double[] xu, int iprint,
+        private static void RESCUE(Func<int, double[], double> calfun,  int n, int npt, double[] xl, double[] xu, int iprint,
             int maxfun, double[] xbase, double[,] xpt, double[] fval, double[] xopt, double[] gopt,
             double[] hq, double[] pq, double[,] bmat, double[,] zmat, int ndim, double[] sl, double[] su,
             ref int nf, double delta, ref int kopt, double[] vlag)
@@ -2409,77 +2409,3 @@ namespace Cureos.Numerics
         #endregion
     }
 }
-/*
-      SUBROUTINE UPDATE (N,NPT,BMAT,ZMAT,NDIM,VLAG,BETA,DENOM,
-     1  KNEW,W)
-      IMPLICIT REAL*8 (A-H,O-Z)
-      DIMENSION BMAT(NDIM,*),ZMAT(NPT,*),VLAG(*),W(*)
-//
-//     The arrays BMAT and ZMAT are updated, as required by the new position
-//     of the interpolation point that has the index KNEW. The vector VLAG has
-//     N+NPT components, set on entry to the first NPT and last N components
-//     of the product Hw in equation (4.11) of the Powell (2006) paper on
-//     NEWUOA. Further, BETA is set on entry to the value of the parameter
-//     with that name, and DENOM is set to the denominator of the updating
-//     formula. Elements of ZMAT may be treated as zero if their moduli are
-//     at most ZTEST. The first NDIM elements of W are used for working space.
-//
-//     Set some constants.
-//
-      ONE=1.0D0
-      ZERO=0.0D0
-      NPTM=NPT-N-1
-      ZTEST=ZERO
-      DO 10 K=1,NPT
-      DO 10 J=1,NPTM
-   10 ZTEST=Math.Max(ZTEST,Math.Abs(ZMAT[K,J]))
-      ZTEST=1.0D-20*ZTEST
-//
-//     Apply the rotations that put zeros in the KNEW-th row of ZMAT.
-//
-      JL=1
-      DO 30 J=2,NPTM
-      if (Math.Abs(ZMAT(KNEW,J)) > ZTEST) {
-          TEMP=Math.Sqrt(ZMAT(KNEW,1)**2+ZMAT(KNEW,J)**2)
-          TEMPA=ZMAT(KNEW,1)/TEMP
-          TEMPB=ZMAT(KNEW,J)/TEMP
-          DO 20 I=1,NPT
-          TEMP=TEMPA*ZMAT(I,1)+TEMPB*ZMAT[I,J]
-          ZMAT[I,J]=TEMPA*ZMAT[I,J]-TEMPB*ZMAT(I,1)
-   20     ZMAT(I,1)=TEMP
-      }
-      ZMAT(KNEW,J)=ZERO
-   30 CONTINUE
-//
-//     Put the first NPT components of the KNEW-th column of HLAG into W,
-//     and calculate the parameters of the updating formula.
-//
-      DO 40 I=1,NPT
-      W[I]=ZMAT(KNEW,1)*ZMAT(I,1)
-   40 CONTINUE
-      ALPHA=W(KNEW)
-      TAU=VLAG(KNEW)
-      VLAG(KNEW)=VLAG(KNEW)-ONE
-//
-//     Complete the updating of ZMAT.
-//
-      TEMP=Math.Sqrt(DENOM)
-      TEMPB=ZMAT(KNEW,1)/TEMP
-      TEMPA=TAU/TEMP
-      DO 50 I=1,NPT
-   50 ZMAT(I,1)=TEMPA*ZMAT(I,1)-TEMPB*VLAG[I]
-//
-//     Finally, update the matrix BMAT.
-//
-      DO 60 J=1,N
-      JP=NPT+J
-      W(JP)=BMAT(KNEW,J)
-      TEMPA=(ALPHA*VLAG(JP)-TAU*W(JP))/DENOM
-      TEMPB=(-BETA*W(JP)-TAU*VLAG(JP))/DENOM
-      DO 60 I=1,JP
-      BMAT[I,J]=BMAT[I,J]+TEMPA*VLAG[I]+TEMPB*W[I]
-      if (I > NPT) BMAT(JP,I-NPT)=BMAT[I,J]
-   60 CONTINUE
-      RETURN
-      END
-*/
