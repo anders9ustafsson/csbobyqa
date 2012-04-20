@@ -1,7 +1,6 @@
 =cscobyla
 
 Bound Optimization BY Quadratic Approximation for .NET    
-Copyright (c) 2012 Anders Gustafsson, Cureos AB.
 
 _csbobyqa_ is an implementation of Powell’s nonlinear derivative–free bound constrained optimization using a quadratic approximation approach. 
 The algorithm applies a trust region method that forms quadratic models by interpolation. There is usually some freedom in the interpolation 
@@ -54,7 +53,7 @@ very limited modifications the source code can also be incorporated in .NET. 2.0
 
 ==The MIT License
 
-Copyright (c) 2012 Anders Gustafsson, Cureos AB.
+Copyright (c) 2009 Michael Powell, 2012 Anders Gustafsson, Cureos AB.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files 
 (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, 
