@@ -6,84 +6,108 @@ namespace Cureos.Numerics.Tests
     [TestFixture]
     public class BobyqaTests
     {
+        #region Fields
+
+        private const double TOL = 1.0e-5;
+
+        #endregion
+
+        #region Unit tests
+
         [Test]
-        public void WillItRun()
+        public void FindMinimum_IntermedRosenbrock_ReturnsValidMinimum()
         {
-            var xl = new[] { 0.0, -1.0e30, -1.0e30 };
-            var xu = new[] { 0.0, 1.0e30, 1.0e30 };
-            var x = new[] { 0.0, 1.0, -1.0 };
-
-            Bobyqa.BOBYQA(IntermedRosenbrock, 2, 4, x, xl, xu, 0.1, 1.0e-6, 3, 1000);
-
-            Assert.AreEqual(-1.0, x[1], 1.0e-5);
-            Assert.AreEqual(1.0, x[2], 1.0e-5);
+            var xx = new[] { 1.0, -1.0 };
+            Bobyqa.FindMinimum((n, x) => 10.0 * Math.Pow(x[0] * x[0] - x[1], 2.0) + Math.Pow(1.0 + x[0], 2.0), 2, xx);
+            Assert.AreEqual(-1.0, xx[0], TOL);
+            Assert.AreEqual(1.0, xx[1], TOL);
         }
 
-        /// <summary>
-        /// Intermediate version of Rosenbrock's problem.
-        /// </summary>
-        private static double IntermedRosenbrock(int n, double[] x)
+        [Test]
+        public void FindMinimum_HS04_ReturnsValidMinimum()
         {
-            return 10.0 * Math.Pow(x[1] * x[1] - x[2], 2.0) + Math.Pow(1.0 + x[1], 2.0);
+            var xx = new[] { 1.125, 0.125 };
+            Bobyqa.FindMinimum((n, x) => Math.Pow(x[0] + 1.0, 3.0) / 3.0 + x[1], 2, xx, new[] { 1.0, 0.0 }, null);
+            Assert.AreEqual(1.0, xx[0], TOL);
+            Assert.AreEqual(0.0, xx[1], TOL);
         }
+
+        [Test]
+        public void FindMinimum_HS05_ReturnsValidMinimum()
+        {
+            var xx = new[] { 0.0, 0.0 };
+            Bobyqa.FindMinimum(
+                (n, x) => Math.Sin(x[0] + x[1]) + Math.Pow(x[0] - x[1], 2.0) - 1.5 * x[0] + 2.5 * x[1] + 1, 2, xx,
+                new[] { -1.5, -3.0 }, new[] { 4.0, 3.0 });
+            Assert.AreEqual(0.5 - Math.PI / 3.0, xx[0], TOL);
+            Assert.AreEqual(-0.5 - Math.PI / 3.0, xx[1], TOL);
+        }
+
+        [TestCase(5, 16)]
+        [TestCase(5, 21)]
+        [TestCase(10, 26)]
+        [TestCase(10, 41)]
+        public void FindMinimum_BobyqaTestCase_ReturnStatusNormal(int m, int npt)
+        {
+            //     Test problem for BOBYQA, the objective function being the sum of
+            //     the reciprocals of all pairwise distances between the points P_I,
+            //     I=1,2,...,M in two dimensions, where M=N/2 and where the components
+            //     of P_I are X(2*I-1) and X(2*I). Thus each vector X of N variables
+            //     defines the M points P_I. The initial X gives equally spaced points
+            //     on a circle. Four different choices of the pairs (N,NPT) are tried,
+            //     namely (10,16), (10,21), (20,26) and (20,41). Convergence to a local
+            //     minimum that is not global occurs in both the N=10 cases. The details
+            //     of the results are highly sensitive to computer rounding errors. The
+            //     choice IPRINT=2 provides the current X and optimal F so far whenever
+            //     RHO is reduced. The bound constraints of the problem require every
+            //     component of X to be in the interval [-1,1].
+
+            var n = 2 * m;
+            var x = new double[n];
+            var xl = new double[n];
+            var xu = new double[n];
+
+            const double bdl = -1.0;
+            const double bdu = 1.0;
+            for (var i = 0; i < n; ++i)
+            {
+                xl[i] = bdl;
+                xu[i] = bdu;
+            }
+
+            Console.WriteLine("{0}2D output with M ={1,4},  N ={2,4}  and  NPT ={3,4}", Environment.NewLine, m, n, npt);
+
+            for (var j = 1; j <= m; ++j)
+            {
+                var temp = 2.0 * Math.PI * j / m;
+                x[2 * j - 2] = Math.Cos(temp);
+                x[2 * j - 1] = Math.Sin(temp);
+            }
+
+            const int iprint = 2;
+            const int maxfun = 500000;
+            const double rhobeg = 1.0E-1;
+            const double rhoend = 1.0E-6;
+
+            const BobyqaExitStatus expected = BobyqaExitStatus.Normal;
+            var actual = Bobyqa.FindMinimum(BobyqaTestCalfun, n, x, xl, xu, npt, rhobeg, rhoend, iprint, maxfun);
+            Assert.AreEqual(expected, actual);
+        }
+
+        public double BobyqaTestCalfun(int n, double[] x)
+        {
+            var f = 0.0;
+            for (var i = 4; i <= n; i += 2)
+            {
+                for (var j = 2; j <= i - 2; j += 2)
+                {
+                    var temp = Math.Max(Math.Pow(x[i - 2] - x[j - 2], 2.0) + Math.Pow(x[i - 1] - x[j - 1], 2.0), 1.0e-6);
+                    f += 1.0 / Math.Sqrt(temp);
+                }
+            }
+            return f;
+        }
+        
+        #endregion
     }
 }
-/*
-C
-C     Test problem for BOBYQA, the objective function being the sum of
-C     the reciprocals of all pairwise distances between the points P_I,
-C     I=1,2,...,M in two dimensions, where M=N/2 and where the components
-C     of P_I are X(2*I-1) and X(2*I). Thus each vector X of N variables
-C     defines the M points P_I. The initial X gives equally spaced points
-C     on a circle. Four different choices of the pairs (N,NPT) are tried,
-C     namely (10,16), (10,21), (20,26) and (20,41). Convergence to a local
-C     minimum that is not global occurs in both the N=10 cases. The details
-C     of the results are highly sensitive to computer rounding errors. The
-C     choice IPRINT=2 provides the current X and optimal F so far whenever
-C     RHO is reduced. The bound constraints of the problem require every
-C     component of X to be in the interval [-1,1].
-C
-      IMPLICIT REAL*8 (A-H,O-Z)
-      DIMENSION X(100),XL(100),XU(100),W(500000)
-      TWOPI=8.0D0*DATAN(1.0D0)
-      BDL=-1.0D0
-      BDU=1.0D0
-      IPRINT=2
-      MAXFUN=500000
-      RHOBEG=1.0D-1
-      RHOEND=1.0D-6
-      M=5
-   10 N=2*M
-      DO 20 I=1,N
-      XL(I)=BDL
-   20 XU(I)=BDU
-      DO 50 JCASE=1,2
-      NPT=N+6
-      IF (JCASE .EQ. 2) NPT=2*N+1
-      PRINT 30, M,N,NPT
-   30 FORMAT (//5X,'2D output with M =',I4,',  N =',I4,
-     1  '  and  NPT =',I4)
-      DO 40 J=1,M
-      TEMP=DFLOAT(J)*TWOPI/DFLOAT(M)
-      X(2*J-1)=DCOS(TEMP)
-   40 X(2*J)=DSIN(TEMP)
-      CALL BOBYQA (N,NPT,X,XL,XU,RHOBEG,RHOEND,IPRINT,MAXFUN,W)
-   50 CONTINUE
-      M=M+M
-      IF (M .LE. 10) GOTO 10
-      STOP
-      END
-
-
-      SUBROUTINE CALFUN (N,X,F)
-      IMPLICIT REAL*8 (A-H,O-Z)
-      DIMENSION X(*)
-      F=0.0D0
-      DO 10 I=4,N,2
-      DO 10 J=2,I-2,2
-      TEMP=(X(I-1)-X(J-1))**2+(X(I)-X(J))**2
-      TEMP=DMAX1(TEMP,1.0D-6)
-   10 F=F+1.0D0/DSQRT(TEMP)
-      RETURN
-      END
-*/

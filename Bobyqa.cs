@@ -19,8 +19,8 @@
  * 
  * Remarks:
  * 
- * The original Fortran 77 version of this code was developed by Michael Powell (M.J.D.Powell @ damtp.cam.ac.uk) and can be downloaded 
- * from this location: http://plato.asu.edu/ftp/other_software/bobyqa.zip
+ * The original Fortran 77 version of this code was developed by Michael Powell (mjdp@cam.ac.uk) and can be downloaded  from this location: 
+ * http://plato.asu.edu/ftp/other_software/bobyqa.zip
  */
 
 using System;
@@ -41,6 +41,9 @@ namespace Cureos.Numerics
     {
         #region FIELDS
 
+        private const double INF = 1.0e60;
+        private const double INFMIN = -1.0e60;
+
         private const double ONEMIN = -1.0;
         private const double ZERO = 0.0;
         private const double TENTH = 0.1;
@@ -49,24 +52,69 @@ namespace Cureos.Numerics
         private const double TWO = 2.0;
         private const double TEN = 10.0;
 
-        private static readonly string Newline = Environment.NewLine;
+        private static readonly string LF = Environment.NewLine;
 
-        private static readonly string InvalidNptText = Newline + "Return from BOBYQA because NPT is not in the required interval";
-        private static readonly string TooSmallBoundRangeText = Newline + "Return from BOBYQA because one of the differences XU[I]-XL[I] is less than 2*RHOBEG.";
-        private static readonly string DenominatorCancellationText = Newline + "Return from BOBYQA because of much cancellation in a denominator.";
-        private static readonly string MaxIterationsText = Newline + "Return from BOBYQA because CALFUN has been called MAXFUN times.";
-        private static readonly string TrustRegionReductionFailureText = Newline + "Return from BOBYQA because a trust region step has failed to reduce Q.";
+        private static readonly string InvalidNptText = LF + "Return from BOBYQA because NPT is not in the required interval";
+        private static readonly string TooSmallBoundRangeText = LF + "Return from BOBYQA because one of the differences XU[I]-XL[I] is less than 2*RHOBEG.";
+        private static readonly string DenominatorCancellationText = LF + "Return from BOBYQA because of much cancellation in a denominator.";
+        private static readonly string MaxIterationsText = LF + "Return from BOBYQA because CALFUN has been called MAXFUN times.";
+        private static readonly string TrustRegionStepFailureText = LF + "Return from BOBYQA because a trust region step has failed to reduce Q.";
 
-        private static readonly string IterationOutputFormat = Newline + "Function number {0,6}    F ={1,18:E10}" + Newline + "The corresponding X is: {2}";
-        private static readonly string StageCompleteOutputFormat = Newline + "Least value of F ={0,15:E9}" + Newline + "The corresponding X is: {1}";
-        private static readonly string RhoUpdatedFormat = Newline + "New RHO ={0,11:E4}" + Newline + "Number of function values ={1,6}";
-        private static readonly string FinalNumberEvaluationsFormat = Newline + "At the return from BOBYQA Number of function values = {0}";
+        private static readonly string IterationOutputFormat = LF + "Function number {0,6}    F ={1,18:E10}" + LF + "The corresponding X is: {2}";
+        private static readonly string StageCompleteOutputFormat = LF + "Least value of F ={0,15:E9}" + LF + "The corresponding X is: {1}";
+        private static readonly string RhoUpdatedFormat = LF + "New RHO ={0,11:E4}" + LF + "Number of function values ={1,6}";
+        private static readonly string FinalNumberEvaluationsFormat = LF + "At the return from BOBYQA Number of function values = {0}";
 
         #endregion
 
-        #region METHODS
+        #region PUBLIC METHODS
 
-        public static BobyqaExitStatus BOBYQA(Func<int, double[], double> calfun, int n, int npt, double[] x,
+        public static BobyqaExitStatus FindMinimum(Func<int, double[], double> calfun, int n, double[] x, double[] xl = null, 
+            double[] xu = null, int npt = -1, double rhobeg = 0.1, double rhoend = 1.0e-6, int iprint = 1, int maxfun = 3500)
+        {
+            // C# arrays are zero-based, whereas BOBYQA methods expect one-based arrays. Therefore define internal matrices
+            // to be dispatched to the private BOBYQA methods.
+            var ix = new double[1 + n];
+            Array.Copy(x, 0, ix, 1, n);
+
+            // If xl and/or xu are null, this is interpreted as that the optimization variables are all unbounded downwards and/or upwards.
+            // In that case, assign artificial +/- infinity values to the bounds array(s).
+            var ixl = new double[1 + n];
+            if (xl == null)
+                for (var i = 1; i <= n; ++i) ixl[i] = INFMIN;
+            else
+                Array.Copy(xl, 0, ixl, 1, n);
+
+            var ixu = new double[1 + n];
+            if (xu == null)
+                for (var i = 1; i <= n; ++i) ixu[i] = INF;
+            else
+                Array.Copy(xu, 0, ixu, 1, n);
+
+            // If npt is non-positive, apply default value 2 * n.
+            var inpt = npt > 0 ? npt : 2 * n;
+
+            // Define internal calfun to account for that the x vector in the function invocation is one-based.
+            var icalfun = new Func<int, double[], double>((nn, ixx) =>
+                                                              {
+                                                                  var xx = new double[n];
+                                                                  Array.Copy(ixx, 1, xx, 0, n);
+                                                                  return calfun(nn, xx);
+                                                              });
+
+            // Invoke optimization. After completed optimization, transfer the optimized internal variable array to the
+            // variable array in the method call.
+            var status = BOBYQA(icalfun, n, inpt, ix, ixl, ixu, rhobeg, rhoend, iprint, maxfun);
+            Array.Copy(ix, 1, x, 0, n);
+
+            return status;
+        }
+
+        #endregion
+
+        #region PRIVATE BOBYQA ALGORITHM METHODS
+
+        private static BobyqaExitStatus BOBYQA(Func<int, double[], double> calfun, int n, int npt, double[] x,
             double[] xl, double[] xu, double rhobeg, double rhoend, int iprint, int maxfun)
         {
             //     This subroutine seeks the least value of a function of many variables,
@@ -676,7 +724,7 @@ namespace Cureos.Numerics
                 if (vquad >= ZERO)
                 {
                     if (iprint > 0)
-                        Console.WriteLine(TrustRegionReductionFailureText);
+                        Console.WriteLine(TrustRegionStepFailureText);
                     status = BobyqaExitStatus.TrustRegionStepReductionFailure;
                     goto L_720;
                 }
