@@ -1,6 +1,6 @@
 =cscobyla
 
-*Bound Optimization BY Quadratic Approximation for .NET*
+<b>Bound Optimization BY Quadratic Approximation for .NET</b>
 
 _csbobyqa_ is a C# implementation of Michael Powell’s nonlinear derivative–free bound constrained optimization method BOBYQA. 
 The algorithm applies a trust region method that forms quadratic models by interpolation. There is usually some freedom in the interpolation 
