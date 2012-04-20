@@ -1,4 +1,4 @@
-=cscobyla
+=csbobyqa
 
 <b>Bound Optimization BY Quadratic Approximation for .NET</b>
 
