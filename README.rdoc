@@ -1,6 +1,6 @@
 =cscobyla
 
-Bound Optimization BY Quadratic Approximation for .NET<br />
+Bound Optimization BY Quadratic Approximation for .NET    
 Copyright (c) 2012 Anders Gustafsson, Cureos AB.
 
 _csbobyqa_ is an implementation of Powell’s nonlinear derivative–free bound constrained optimization using a quadratic approximation approach. 
