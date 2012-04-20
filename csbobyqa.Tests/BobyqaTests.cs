@@ -27,7 +27,7 @@ namespace Cureos.Numerics.Tests
         public void FindMinimum_HS04_ReturnsValidMinimum()
         {
             var xx = new[] { 1.125, 0.125 };
-            Bobyqa.FindMinimum((n, x) => Math.Pow(x[0] + 1.0, 3.0) / 3.0 + x[1], 2, xx, new[] { 1.0, 0.0 }, null);
+            Bobyqa.FindMinimum((n, x) => Math.Pow(x[0] + 1.0, 3.0) / 3.0 + x[1], 2, xx, new[] { 1.0, 0.0 }, null, 4);
             Assert.AreEqual(1.0, xx[0], TOL);
             Assert.AreEqual(0.0, xx[1], TOL);
         }
@@ -38,7 +38,7 @@ namespace Cureos.Numerics.Tests
             var xx = new[] { 0.0, 0.0 };
             Bobyqa.FindMinimum(
                 (n, x) => Math.Sin(x[0] + x[1]) + Math.Pow(x[0] - x[1], 2.0) - 1.5 * x[0] + 2.5 * x[1] + 1, 2, xx,
-                new[] { -1.5, -3.0 }, new[] { 4.0, 3.0 });
+                new[] { -1.5, -3.0 }, new[] { 4.0, 3.0 }, 4);
             Assert.AreEqual(0.5 - Math.PI / 3.0, xx[0], TOL);
             Assert.AreEqual(-0.5 - Math.PI / 3.0, xx[1], TOL);
         }

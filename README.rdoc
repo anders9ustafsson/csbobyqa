@@ -1,15 +1,76 @@
-===========================================================================
-On 8/13/09 added the paper on BOBYQA
-===========================================================================
+=cscobyla
 
-For simplicity, the Makefi;e has been replaced by a one-line compile
-script "comp" which needs to be adjusted if the compiler name is not
-f77. All Fortran files are in bobyla.f. Compiling and running bobyqa
-should produce results similar to those in RESULTS.
-                                         Hans Mittelmann, Jan 2009
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Bound Optimization BY Quadratic Approximation for .NET<br />
+Copyright (c) 2012 Anders Gustafsson, Cureos AB.
 
-     The Fortran version of BOBYQA is attached. Its purpose is to seek
+_csbobyqa_ is an implementation of Powell’s nonlinear derivative–free bound constrained optimization using a quadratic approximation approach. 
+The algorithm applies a trust region method that forms quadratic models by interpolation. There is usually some freedom in the interpolation 
+conditions, which is taken up by minimizing the Frobenius norm of the change to the second derivative of the model, beginning with the zero matrix. 
+The values of the variables are constrained by upper and lower bounds.
+
+==Links
+
+* M.J.D. Powell, "The BOBYQA algorithm for bound constrained optimization without derivatives", DAMTP 2009/NA06 Report, http://www.damtp.cam.ac.uk/user/na/NA_papers/NA2009_06.pdf
+* Original Fortran 77 implementation: http://plato.asu.edu/ftp/other_software/bobyqa.zip
+
+==Usage
+
+The C# implementation is relatively faithful to the original Fortran 77 implementation. It should be noted however that the  
+indexing of the variables and constraints arrays in the _public_ interface is zero-based, i.e. for a problem with 3 variables, x[0],
+x[1] and x[2] should be employed in the objective function evaluations. Furthermore, the signature of the objective function
+evaluation method is different from the original Fortran implementation.
+
+Implement a method for computing the objective function with the following signature:
+
+    double calfun(int n, double[] x)
+
+where _n_ is the number of variables and _x_ is the variable array. The method should return the calculated objective
+function value.
+
+To minimize the objective function subject to bounds, call the static _Bobyqa.FindMinimum_ method:
+
+    BobyqaExitStatus FindMinimum(Func<int, double[], double> calfun, int n, double[] x, 
+                                 double[] xl, double[] xu, int npt, double rhobeg, 
+                                 double rhoend, int iprint, int maxfun)
+
+where _x_ on input is the initial variable array, _xl_ and _xu_ are lower and upper variable bounds, respectively, _npt_ is the number
+of interpolation conditions (recommended value 2 * _n_ + 1), _rhobeg_ and _rhoend_ are initial and final values of a trust region radius, _iprint_ (0..3)
+specifies the level of output to the console, _maxfun_ is the maximum allowed number of function evaluations. On output _x_ provides the optimal 
+obtained variable values. The method returns optimization status on exit from BOBYQA.
+
+If _xl_ and/or _xu_ are set to _null_, all optimization variables are considered to be unbounded downwards and upwards, respectively. If _npt_
+is set to a non-positive value, the _npt_ value applied in the optimization is equal to 2 * _n_ + 1.
+
+The _FindMinimum_ method also implements default values as follows: _xl_ = _null_, _xu_ = _null_, _npt_ = -1, _rhobeg_ = 0.1, _rhoend_ = 1.0e-6,
+_iprint_ = 1 and _maxfun_ = 10000. 
+
+To solve an unbounded optimization problem, the method may thus be called as follows, employing the above default parameter values in the
+minimization:
+
+    var status = Bobyqa.FindMinimum(calfun, n, x);
+
+The file _Bobyqa.cs_ can be included as-is in any C# project, .NET Framework 4.0 or later, Silverlight 4 or later and Windows Phone 7.5 and later. With
+very limited modifications the source code can also be incorporated in .NET. 2.0 projects etc.
+
+==The MIT License
+
+Copyright (c) 2012 Anders Gustafsson, Cureos AB.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files 
+(the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, 
+publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, 
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF 
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE 
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+==Fortran 77 README excerpt
+
+/.../ BOBYQA is attached. Its purpose is to seek
 the least value of a function F of several variables, when derivatives
 are not available, where F is specified by the user through a subroutine
 called CALFUN. The name BOBYQA denotes Bound Approximation BY Quadratic
@@ -21,16 +82,11 @@ finding out if the calculations are satisfactory, by considering carefully
 the values of F that occur. The BOBYQA software has been developed from the
 method of the paper "The NEWUOA software for unconstrained minimization
 without derivatives", in Large-Scale Nonlinear Optimization, editors G. Di
-Pillo and M. Roma, Springer (2006), pages 255-297. A report that describes
-the details of the development is going to be written soon.
+Pillo and M. Roma, Springer (2006), pages 255-297.
 
-     The attachments in sequence are a suitable Makefile, followed by a main
-program and a CALFUN routine for the "Invdist2" problem, in order to provide
-an example for testing. Then BOBYQA and its six auxiliary routines, namely
-BOBYQB, ALTMOV, PRELIM, RESCUE, TRSBOX and UPDATE, are given. Finally, the
-computed output that the author obtained for the Invdist2 problems is listed.
+/.../
 
-     In addition to providing CALFUN, an initial vector of variables and
+In addition to providing CALFUN, an initial vector of variables and
 the lower and upper bounds, the user has to set the values of the parameters
 RHOBEG, RHOEND and NPT. After scaling the individual variables if necessary,
 so that the magnitudes of their expected changes are similar, RHOBEG is the
@@ -50,11 +106,13 @@ of magnitude NPT**2, and because the achievement of adequate accuracy in some
 matrix calculations becomes more difficult. Some excellent numerical results
 have been found in the case NPT=N+6 even with more than 100 variables.
 
-     The way of calling BOBYQA should be clear from the Invdist2 examples
-and from the comments near the beginning of SUBROUTINE BOBYQA. There are no
+/.../ There are no
 restrictions on or charges for the use of the software. I hope that the time
 and effort I have spent on developing the package will be helpful to much
 research and to many applications.
 
 January 5th, 2009                    M.J.D. Powell (mjdp@cam.ac.uk)
 
+==Revision history
+
+* April 20, 2012: Initial document.

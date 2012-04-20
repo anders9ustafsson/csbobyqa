@@ -27,6 +27,9 @@ using System;
 
 namespace Cureos.Numerics
 {
+    /// <summary>
+    /// Representation of supported exit statuses from the Bobyqa algorithm.
+    /// </summary>
     public enum BobyqaExitStatus
     {
         Normal,
@@ -37,6 +40,13 @@ namespace Cureos.Numerics
         MaximumIterationsReached
     }
 
+    /// <summary>
+    /// C# implementation of Powell’s nonlinear derivative–free bound constrained optimization that uses a quadratic 
+    /// approximation approach. The algorithm applies a trust region method that forms quadratic models by interpolation. 
+    /// There is usually some freedom in the interpolation conditions, which is taken up by minimizing the Frobenius norm 
+    /// of the change to the second derivative of the model, beginning with the zero matrix. 
+    /// The values of the variables are constrained by upper and lower bounds.
+    /// </summary>
     public static class Bobyqa
     {
         #region FIELDS
@@ -69,8 +79,35 @@ namespace Cureos.Numerics
 
         #region PUBLIC METHODS
 
+        /// <summary>
+        /// Find a (local) minimum of the objective function <paramref name="calfun"/>, potentially subject to variable
+        /// bounds <paramref name="xl"/> and <paramref name="xu"/>.
+        /// </summary>
+        /// <param name="calfun">Objective function subject to minimization.</param>
+        /// <param name="n">Number of optimization variables, must be at least two.</param>
+        /// <param name="x">On entry, initial estimates of the variables. On exit, optimized variable values corresponding
+        /// to the minimization of <paramref name="calfun"/>. The variable array is zero-based.</param>
+        /// <param name="xl">Lower bounds on the variables. Array is zero-based. If set to null, all variables
+        /// are treated as downwards unbounded.</param>
+        /// <param name="xu">Upper bounds on the variables. Array is zero-based. If set to null, all variables
+        /// are treated as upwards unbounded.</param>
+        /// <param name="npt">Number of interpolation conditions. Its value must be in the interval [N+2,(N+1)(N+2)/2]. 
+        /// Choices that exceed 2*N+1 are not recommended.</param>
+        /// <param name="rhobeg">Initial value of a trust region radius, must be positive and greater than <paramref name="rhoend"/>.
+        /// Typically, value should be about one tenth of the greatest expected change to a variable.</param>
+        /// <param name="rhoend">Final values of a trust region radius, must be positive and less than <paramref name="rhobeg"/>.
+        /// Indicate the accuracy that is required in the final values of the variables.</param>
+        /// <param name="iprint">Should be set to 0, 1, 2 or 3, to control the amount of printing. Specifically, there is 
+        /// no output for 0 and there is output only at the return for 1. Otherwise, each new value of RHO is printed, 
+        /// with the best vector of variables so far and the corresponding value of the objective function. Further, each new
+        /// value of the objective function with its variables are output for value 3.</param>
+        /// <param name="maxfun">Maximum number of objective function evaluations.</param>
+        /// <returns>Exit status of the objective function minimization.</returns>
+        /// <remarks>The construction of quadratic models requires <paramref name="xl"/> to be strictly less than 
+        /// <paramref name="xu"/> for each index I. Further, the contribution to a model from changes to the I-th variable is
+        /// damaged severely by rounding errors if difference between upper and lower bound is too small.</remarks>
         public static BobyqaExitStatus FindMinimum(Func<int, double[], double> calfun, int n, double[] x, double[] xl = null, 
-            double[] xu = null, int npt = -1, double rhobeg = 0.1, double rhoend = 1.0e-6, int iprint = 1, int maxfun = 3500)
+            double[] xu = null, int npt = -1, double rhobeg = 0.1, double rhoend = 1.0e-6, int iprint = 1, int maxfun = 10000)
         {
             // C# arrays are zero-based, whereas BOBYQA methods expect one-based arrays. Therefore define internal matrices
             // to be dispatched to the private BOBYQA methods.
@@ -91,8 +128,8 @@ namespace Cureos.Numerics
             else
                 Array.Copy(xu, 0, ixu, 1, n);
 
-            // If npt is non-positive, apply default value 2 * n.
-            var inpt = npt > 0 ? npt : 2 * n;
+            // If npt is non-positive, apply default value 2 * n + 1.
+            var inpt = npt > 0 ? npt : 2 * n + 1;
 
             // Define internal calfun to account for that the x vector in the function invocation is one-based.
             var icalfun = new Func<int, double[], double>((nn, ixx) =>
