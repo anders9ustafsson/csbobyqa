@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections;
+using System.Linq;
 using NUnit.Framework;
 
 namespace Cureos.Numerics.Tests
@@ -107,7 +109,52 @@ namespace Cureos.Numerics.Tests
             }
             return f;
         }
+
+        [TestCase(13, 47)]
+        public void FindMinimum_ConstrainedRosenWithAdditionalInterpolationPoints_ReturnsValidMinimum(int n, int maxAdditionalPoints)
+        {
+            var xl = Enumerable.Repeat(-1.0, n).ToArray();
+            var xu = Enumerable.Repeat(2.0, n).ToArray();
+            var expected = Enumerable.Repeat(1.0, n).ToArray();
+
+            for (var num = 1; num <= maxAdditionalPoints; ++num)
+            {
+                Console.WriteLine("\nNumber of additional points = {0}", num);
+                var npt = 2 * n + 1 + num;
+                var x = Enumerable.Repeat(0.1, n).ToArray();
+                Bobyqa.FindMinimum(Rosen, n, x, xl, xu, npt, 1.0, 1.0e-8, 1, 2000);
+                CollectionAssert.AreEqual(expected, x, new DoubleComparer(1.0e-6));
+            }
+        }
         
+        public double Rosen(int n, double[] x)
+        {
+            var f = 0.0;
+            for (var i = 0; i < n - 1; ++i)
+                f += 1e2 * (x[i] * x[i] - x[i + 1]) * (x[i] * x[i] - x[i + 1]) + (x[i] - 1.0) * (x[i] - 1.0);
+            return f;
+        }
+
         #endregion
+    }
+
+    internal class DoubleComparer : IComparer
+    {
+        private readonly double _tol;
+
+        internal DoubleComparer(double tol)
+        {
+            _tol = tol;
+        }
+
+        internal int Compare(double x, double y)
+        {
+            return Math.Abs(x - y) <= _tol ? 0 : x.CompareTo(y);
+        }
+
+        int IComparer.Compare(object x, object y)
+        {
+            return Compare((double)x, (double)y);
+        }
     }
 }
