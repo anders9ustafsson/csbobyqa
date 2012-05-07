@@ -34,18 +34,18 @@ To minimize the objective function subject to bounds, call the static _Bobyqa.Fi
 
     BobyqaExitStatus FindMinimum(Func<int, double[], double> calfun, int n, double[] x, 
                                  double[] xl, double[] xu, int npt, double rhobeg, 
-                                 double rhoend, int iprint, int maxfun)
+                                 double rhoend, int iprint, int maxfun, TextWriter logger)
 
 where _x_ on input is the initial variable array, _xl_ and _xu_ are lower and upper variable bounds, respectively, _npt_ is the number
 of interpolation conditions (recommended value 2 * _n_ + 1), _rhobeg_ and _rhoend_ are initial and final values of a trust region radius, _iprint_ (0..3)
-specifies the level of output to the console, _maxfun_ is the maximum allowed number of function evaluations. On output _x_ provides the optimal 
-obtained variable values. The method returns optimization status on exit from BOBYQA.
+specifies the level of output to the console, _maxfun_ is the maximum allowed number of function evaluations, and _logger_ is a text writer to where Bobyqa's log will be output. 
+On output _x_ provides the optimal obtained variable values. The method returns optimization status on exit from BOBYQA.
 
 If _xl_ and/or _xu_ are set to _null_, all optimization variables are considered to be unbounded downwards and upwards, respectively. If _npt_
 is set to a non-positive value, the _npt_ value applied in the optimization is equal to 2 * _n_ + 1.
 
 The _FindMinimum_ method also implements default values as follows: _xl_ = _null_, _xu_ = _null_, _npt_ = -1, _rhobeg_ = 0.1, _rhoend_ = 1.0e-6,
-_iprint_ = 1 and _maxfun_ = 10000. 
+_iprint_ = 1, _maxfun_ = 10000 and _logger_ = _null_. 
 
 To solve an unbounded optimization problem, the method can thus potentially be called as follows, employing the above default parameter values in the
 minimization:
@@ -113,4 +113,5 @@ January 5th, 2009, M.J.D. Powell.
 
 ==Revision history
 
+* May 7, 2012: Added info on _logger_ option.
 * April 20, 2012: Initial document.
