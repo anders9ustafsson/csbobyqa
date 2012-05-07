@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.IO;
 using System.Linq;
 using NUnit.Framework;
 
@@ -127,6 +128,26 @@ namespace Cureos.Numerics.Tests
             }
         }
         
+        [Test]
+        public void FindMinimum_LogOutput_OutputNonEmpty()
+        {
+            const int n = 9;
+            var x = Enumerable.Repeat(0.1, n).ToArray();
+            using (var logger = new StringWriter())
+            {
+                Bobyqa.FindMinimum(Rosen, n, x, null, null, -1, 1.0, 1.0e-8, 1, 2000, logger);
+                Assert.Greater(logger.ToString().Length, 0);
+            }
+        }
+
+        [Test]
+        public void FindMinimum_LogOutputToConsole_OutputNonEmpty()
+        {
+            const int n = 9;
+            var x = Enumerable.Repeat(0.1, n).ToArray();
+            Bobyqa.FindMinimum(Rosen, n, x, null, null, -1, 1.0, 1.0e-8, 1, 2000, Console.Out);
+        }
+
         public double Rosen(int n, double[] x)
         {
             var f = 0.0;

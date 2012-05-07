@@ -24,6 +24,7 @@
  */
 
 using System;
+using System.IO;
 
 namespace Cureos.Numerics
 {
@@ -102,12 +103,14 @@ namespace Cureos.Numerics
         /// with the best vector of variables so far and the corresponding value of the objective function. Further, each new
         /// value of the objective function with its variables are output for value 3.</param>
         /// <param name="maxfun">Maximum number of objective function evaluations.</param>
+        /// <param name="logger">If defined, text writer to which log output should be directed.</param>
         /// <returns>Exit status of the objective function minimization.</returns>
         /// <remarks>The construction of quadratic models requires <paramref name="xl"/> to be strictly less than 
         /// <paramref name="xu"/> for each index I. Further, the contribution to a model from changes to the I-th variable is
         /// damaged severely by rounding errors if difference between upper and lower bound is too small.</remarks>
         public static BobyqaExitStatus FindMinimum(Func<int, double[], double> calfun, int n, double[] x, double[] xl = null, 
-            double[] xu = null, int npt = -1, double rhobeg = 0.1, double rhoend = 1.0e-6, int iprint = 1, int maxfun = 10000)
+            double[] xu = null, int npt = -1, double rhobeg = 0.1, double rhoend = 1.0e-6, int iprint = 1, int maxfun = 10000,
+            TextWriter logger = null)
         {
             // C# arrays are zero-based, whereas BOBYQA methods expect one-based arrays. Therefore define internal matrices
             // to be dispatched to the private BOBYQA methods.
@@ -141,7 +144,7 @@ namespace Cureos.Numerics
 
             // Invoke optimization. After completed optimization, transfer the optimized internal variable array to the
             // variable array in the method call.
-            var status = BOBYQA(icalfun, n, inpt, ix, ixl, ixu, rhobeg, rhoend, iprint, maxfun);
+            var status = BOBYQA(icalfun, n, inpt, ix, ixl, ixu, rhobeg, rhoend, iprint, maxfun, logger);
             Array.Copy(ix, 1, x, 0, n);
 
             return status;
@@ -152,7 +155,7 @@ namespace Cureos.Numerics
         #region PRIVATE BOBYQA ALGORITHM METHODS
 
         private static BobyqaExitStatus BOBYQA(Func<int, double[], double> calfun, int n, int npt, double[] x,
-            double[] xl, double[] xu, double rhobeg, double rhoend, int iprint, int maxfun)
+            double[] xl, double[] xu, double rhobeg, double rhoend, int iprint, int maxfun, TextWriter logger)
         {
             //     This subroutine seeks the least value of a function of many variables,
             //     by applying a trust region method that forms quadratic models by
@@ -198,7 +201,7 @@ namespace Cureos.Numerics
             var np = n + 1;
             if (npt < n + 2 || npt > ((n + 2) * np) / 2)
             {
-                Console.WriteLine(InvalidNptText);
+                if (logger != null) logger.WriteLine(InvalidNptText);
                 return BobyqaExitStatus.InvalidInterpolationConditionNumber;
             }
 
@@ -219,7 +222,7 @@ namespace Cureos.Numerics
                 double temp = xu[j] - xl[j];
                 if (temp < rhobeg + rhobeg)
                 {
-                    Console.WriteLine(TooSmallBoundRangeText);
+                    if (logger != null) logger.WriteLine(TooSmallBoundRangeText);
                     return BobyqaExitStatus.BoundsRangeTooSmall;
                 }
                 sl[j] = xl[j] - x[j];
@@ -257,11 +260,12 @@ namespace Cureos.Numerics
             }
 
             //     Make the call of BOBYQB.
-            return BOBYQB(calfun, n, npt, x, xl, xu, rhobeg, rhoend, iprint, maxfun, ndim, sl, su);
+            return BOBYQB(calfun, n, npt, x, xl, xu, rhobeg, rhoend, iprint, maxfun, ndim, sl, su, logger);
         }
 
         private static BobyqaExitStatus BOBYQB(Func<int, double[], double> calfun, int n, int npt, double[] x, double[] xl,
-            double[] xu, double rhobeg, double rhoend, int iprint, int maxfun, int ndim, double[] sl, double[] su)
+            double[] xu, double rhobeg, double rhoend, int iprint, int maxfun, int ndim, double[] sl, double[] su,
+            TextWriter logger)
         {
             //     The arguments N, NPT, X, XL, XU, RHOBEG, RHOEND, IPRINT and MAXFUN
             //       are identical to the corresponding arguments in SUBROUTINE BOBYQA.
@@ -341,7 +345,7 @@ namespace Cureos.Numerics
 
             int nf, kopt;
             PRELIM(calfun,n, npt, x, xl, xu, rhobeg, iprint, maxfun, xbase, xpt, fval, gopt, hq, pq, bmat, zmat, ndim, sl, su,
-                   out nf, out kopt);
+                   out nf, out kopt, logger);
 
             var xoptsq = ZERO;
             for (var i = 1; i <= n; ++i)
@@ -352,7 +356,7 @@ namespace Cureos.Numerics
             var fsave = fval[1];
             if (nf < npt)
             {
-                if (iprint > 0) Console.WriteLine(MaxIterationsText);
+                if (iprint > 0 && logger != null) logger.WriteLine(MaxIterationsText);
                 status = BobyqaExitStatus.MaximumIterationsReached;
                 goto L_720;
             }
@@ -545,7 +549,7 @@ namespace Cureos.Numerics
             nfsav = nf;
             kbase = kopt;
             RESCUE(calfun, n, npt, xl, xu, iprint, maxfun, xbase, xpt, fval, xopt, gopt, hq, pq, bmat, zmat, ndim, sl,
-                   su, ref nf, delta, ref kopt, vlag);
+                   su, ref nf, delta, ref kopt, vlag, logger);
 
             //     XOPT is updated now in case the branch below to label 720 is taken.
             //     Any updating of GOPT occurs after the branch below to label 20, which
@@ -563,7 +567,7 @@ namespace Cureos.Numerics
             if (nf < 0)
             {
                 nf = maxfun;
-                if (iprint > 0) Console.WriteLine(MaxIterationsText);
+                if (iprint > 0 && logger != null) logger.WriteLine(MaxIterationsText);
                 status = BobyqaExitStatus.MaximumIterationsReached;
                 goto L_720;
             }
@@ -657,7 +661,7 @@ namespace Cureos.Numerics
                 if (denom <= HALF * vlag[knew] * vlag[knew])
                 {
                     if (nf > nresc) goto L_190;
-                    if (iprint > 0) Console.WriteLine(DenominatorCancellationText);
+                    if (iprint > 0 && logger != null) logger.WriteLine(DenominatorCancellationText);
                     status = BobyqaExitStatus.DenominatorCancellation;
                     goto L_720;
                 }
@@ -695,7 +699,7 @@ namespace Cureos.Numerics
                 if (scaden <= HALF * biglsq)
                 {
                     if (nf > nresc) goto L_190;
-                    if (iprint > 0) Console.WriteLine(DenominatorCancellationText);
+                    if (iprint > 0 && logger != null) logger.WriteLine(DenominatorCancellationText);
                     status = BobyqaExitStatus.DenominatorCancellation;
                     goto L_720;
                 }
@@ -716,7 +720,7 @@ namespace Cureos.Numerics
             }
             if (nf >= maxfun)
             {
-                if (iprint > 0) Console.WriteLine(MaxIterationsText);
+                if (iprint > 0 && logger != null) logger.WriteLine(MaxIterationsText);
                 status = BobyqaExitStatus.MaximumIterationsReached;
                 goto L_720;
             }
@@ -724,7 +728,7 @@ namespace Cureos.Numerics
             ++nf;
             f = calfun(n, x);
 
-            if (iprint == 3) Console.WriteLine(IterationOutputFormat, nf, f, x.ToString(n));
+            if (iprint == 3 && logger != null) logger.WriteLine(IterationOutputFormat, nf, f, x.ToString(n));
             if (ntrits == -1)
             {
                 fsave = f;
@@ -760,8 +764,7 @@ namespace Cureos.Numerics
             {
                 if (vquad >= ZERO)
                 {
-                    if (iprint > 0)
-                        Console.WriteLine(TrustRegionStepFailureText);
+                    if (iprint > 0 && logger != null) logger.WriteLine(TrustRegionStepFailureText);
                     status = BobyqaExitStatus.TrustRegionStepReductionFailure;
                     goto L_720;
                 }
@@ -1012,8 +1015,11 @@ namespace Cureos.Numerics
                     var bestX = new double[1 + n];
                     for (var i = 1; i <= n; ++i) bestX[i] = xbase[i] + xopt[i];
 
-                    Console.WriteLine(RhoUpdatedFormat, rho, nf);
-                    Console.WriteLine(StageCompleteOutputFormat, fval[kopt], bestX.ToString(n));
+                    if (logger != null)
+                    {
+                        logger.WriteLine(RhoUpdatedFormat, rho, nf);
+                        logger.WriteLine(StageCompleteOutputFormat, fval[kopt], bestX.ToString(n));
+                    }
                 }
                 ntrits = 0;
                 nfsav = nf;
@@ -1037,10 +1043,10 @@ namespace Cureos.Numerics
                 }
                 f = fval[kopt];
             }
-            if (iprint >= 1)
+            if (iprint >= 1 && logger != null)
             {
-                Console.WriteLine(FinalNumberEvaluationsFormat, nf);
-                Console.WriteLine(StageCompleteOutputFormat, f, x.ToString(n));
+                logger.WriteLine(FinalNumberEvaluationsFormat, nf);
+                logger.WriteLine(StageCompleteOutputFormat, f, x.ToString(n));
             }
             return status;
         }
@@ -1396,7 +1402,7 @@ namespace Cureos.Numerics
         private static void PRELIM(Func<int, double[], double> calfun, int n, int npt, double[] x, 
             double[] xl, double[] xu, double rhobeg, int iprint, int maxfun, double[] xbase, double[,] xpt, 
             double[] fval, double[] gopt, double[] hq, double[] pq, double[,] bmat, double[,] zmat,
-            int ndim, double[] sl, double[] su, out int nf, out int kopt)
+            int ndim, double[] sl, double[] su, out int nf, out int kopt, TextWriter logger)
         {
             //     The arguments N, NPT, X, XL, XU, RHOBEG, IPRINT and MAXFUN are the
             //       same as the corresponding arguments in SUBROUTINE BOBYQA.
@@ -1496,7 +1502,7 @@ namespace Cureos.Numerics
                 }
 
                 var f = calfun(n, x);
-                if (iprint == 3) Console.WriteLine(IterationOutputFormat, nf, f, x.ToString(n));
+                if (iprint == 3 && logger != null) logger.WriteLine(IterationOutputFormat, nf, f, x.ToString(n));
                 fval[nf] = f;
                 if (nf == 1)
                 {
@@ -1572,7 +1578,7 @@ namespace Cureos.Numerics
         private static void RESCUE(Func<int, double[], double> calfun,  int n, int npt, double[] xl, double[] xu, int iprint,
             int maxfun, double[] xbase, double[,] xpt, double[] fval, double[] xopt, double[] gopt,
             double[] hq, double[] pq, double[,] bmat, double[,] zmat, int ndim, double[] sl, double[] su,
-            ref int nf, double delta, ref int kopt, double[] vlag)
+            ref int nf, double delta, ref int kopt, double[] vlag, TextWriter logger)
         {
             //     The arguments N, NPT, XL, XU, IPRINT, MAXFUN, XBASE, XPT, FVAL, XOPT,
             //       GOPT, HQ, PQ, BMAT, ZMAT, NDIM, SL and SU have the same meanings as
@@ -1955,7 +1961,7 @@ namespace Cureos.Numerics
 
                 ++nf;
                 var f = calfun(n, w);
-                if (iprint == 3) Console.WriteLine(IterationOutputFormat, nf, f, w.ToString(n));
+                if (iprint == 3 && logger != null) logger.WriteLine(IterationOutputFormat, nf, f, w.ToString(n));
 
                 fval[kpt] = f;
                 if (f < fval[kopt]) kopt = kpt;
@@ -2524,9 +2530,9 @@ namespace Cureos.Numerics
 
         private static string ToString(this double[] x, int n)
         {
-            var xout = new double[n];
-            for (var i = 0; i < n; ++i) xout[i] = x[1 + i];
-            return String.Concat(Array.ConvertAll(xout, val => String.Format("{0,13:F6}", val)));
+            var xstr = new string[n];
+            for (var i = 0; i < n; ++i) xstr[i] = String.Format("{0,13:F6}", x[1 + i]);
+            return String.Concat(xstr);
         }
 
         #endregion
