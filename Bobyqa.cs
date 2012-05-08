@@ -33,6 +33,9 @@ namespace Cureos.Numerics
     /// </summary>
     public enum BobyqaExitStatus
     {
+        TooFewVariables,
+        VariableBoundsArrayTooShort,
+        InvalidBoundsSpecification,
         Normal,
         InvalidInterpolationConditionNumber,
         BoundsRangeTooSmall,
@@ -109,9 +112,18 @@ namespace Cureos.Numerics
         /// <paramref name="xu"/> for each index I. Further, the contribution to a model from changes to the I-th variable is
         /// damaged severely by rounding errors if difference between upper and lower bound is too small.</remarks>
         public static BobyqaExitStatus FindMinimum(Func<int, double[], double> calfun, int n, double[] x, double[] xl = null, 
-            double[] xu = null, int npt = -1, double rhobeg = 0.1, double rhoend = 1.0e-6, int iprint = 1, int maxfun = 10000,
+            double[] xu = null, int npt = -1, double rhobeg = -1.0, double rhoend = -1.0, int iprint = 1, int maxfun = 10000,
             TextWriter logger = null)
         {
+            // Verify that the number of variables is greater than 1; BOBYQA does not support 1-D optimization.
+            if (n < 2) return BobyqaExitStatus.TooFewVariables;
+
+            // Verify that the number of variables, and bounds if defined, in the respective array is sufficient.
+            if (x.Length < n || (xl != null && xl.Length < n) || (xu != null && xu.Length < n))
+            {
+                return BobyqaExitStatus.VariableBoundsArrayTooShort;
+            }
+
             // C# arrays are zero-based, whereas BOBYQA methods expect one-based arrays. Therefore define internal matrices
             // to be dispatched to the private BOBYQA methods.
             var ix = new double[1 + n];
@@ -130,6 +142,33 @@ namespace Cureos.Numerics
                 for (var i = 1; i <= n; ++i) ixu[i] = INF;
             else
                 Array.Copy(xu, 0, ixu, 1, n);
+
+            // Verify that all lower bounds are less than upper bounds.
+            // If any start value is outside bounds, adjust this value to be within bounds.
+            var rng = new double[1 + n];
+            var minrng = Double.MaxValue;
+            var maxabsx = 0.0;
+
+            for (var i = 1; i <= n; ++i)
+            {
+                if ((rng[i] = ixu[i] - ixl[i]) <= 0.0)
+                    return BobyqaExitStatus.InvalidBoundsSpecification;
+                minrng = Math.Min(rng[i], minrng);
+
+                if (ix[i] < ixl[i]) ix[i] = ixl[i];
+                if (ix[i] > ixu[i]) ix[i] = ixu[i];
+                maxabsx = Math.Max(Math.Abs(ix[i]), maxabsx);
+            }
+            
+            // If rhobeg is non-positive, set rhobeg based on the absolute values of the variables' start values,
+            // using same strategy as R-project BOBYQA wrapper.
+            if (rhobeg <= 0.0) rhobeg = maxabsx > 0.0 ? Math.Min(0.95, 0.2 * maxabsx) : 0.95;
+
+            // Required that rhobeg is less than half the minimum bounds range; adjust rhobeg if necessary.
+            if (rhobeg > 0.5 * minrng) rhobeg = 0.2 * minrng;
+
+            // If rhoend is non-negative, set rhoend to one millionth of the rhobeg value (R-project strategy).
+            if (rhoend <= 0.0) rhoend = 1.0e-6 * rhobeg;
 
             // If npt is non-positive, apply default value 2 * n + 1.
             var inpt = npt > 0 ? npt : 2 * n + 1;

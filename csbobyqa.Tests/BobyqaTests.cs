@@ -41,7 +41,7 @@ namespace Cureos.Numerics.Tests
             var xx = new[] { 0.0, 0.0 };
             Bobyqa.FindMinimum(
                 (n, x) => Math.Sin(x[0] + x[1]) + Math.Pow(x[0] - x[1], 2.0) - 1.5 * x[0] + 2.5 * x[1] + 1, 2, xx,
-                new[] { -1.5, -3.0 }, new[] { 4.0, 3.0 }, 4);
+                new[] { -1.5, -3.0 }, new[] { 4.0, 3.0 });
             Assert.AreEqual(0.5 - Math.PI / 3.0, xx[0], TOL);
             Assert.AreEqual(-0.5 - Math.PI / 3.0, xx[1], TOL);
         }
@@ -123,7 +123,7 @@ namespace Cureos.Numerics.Tests
                 Console.WriteLine("\nNumber of additional points = {0}", num);
                 var npt = 2 * n + 1 + num;
                 var x = Enumerable.Repeat(0.1, n).ToArray();
-                Bobyqa.FindMinimum(Rosen, n, x, xl, xu, npt, 1.0, 1.0e-8, 1, 2000);
+                Bobyqa.FindMinimum(Rosen, n, x, xl, xu, npt, -1, 1.0e-8, 1, 2000, Console.Out);
                 CollectionAssert.AreEqual(expected, x, new DoubleComparer(1.0e-6));
             }
         }

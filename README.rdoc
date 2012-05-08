@@ -42,9 +42,11 @@ specifies the level of output to the console, _maxfun_ is the maximum allowed nu
 On output _x_ provides the optimal obtained variable values. The method returns optimization status on exit from BOBYQA.
 
 If _xl_ and/or _xu_ are set to _null_, all optimization variables are considered to be unbounded downwards and upwards, respectively. If _npt_
-is set to a non-positive value, the _npt_ value applied in the optimization is equal to 2 * _n_ + 1.
+is set to a non-positive value, the _npt_ value applied in the optimization is equal to 2 * _n_ + 1. If _rhobeg_ is set to a non-positive value,
+the _rhobeg_ value applied in the optimization will be based on the variable start values and the ranges of the bounds. If _rhoend_ is set to a 
+non-positive value, the _rhoend_ vlaue applied in the optimization will be one millionth of the applied _rhobeg_.
 
-The _FindMinimum_ method also implements default values as follows: _xl_ = _null_, _xu_ = _null_, _npt_ = -1, _rhobeg_ = 0.1, _rhoend_ = 1.0e-6,
+The _FindMinimum_ method also implements default values as follows: _xl_ = _null_, _xu_ = _null_, _npt_ = -1, _rhobeg_ = -1, _rhoend_ = -1,
 _iprint_ = 1, _maxfun_ = 10000 and _logger_ = _null_. 
 
 To solve an unbounded optimization problem, the method can thus potentially be called as follows, employing the above default parameter values in the
@@ -113,5 +115,6 @@ January 5th, 2009, M.J.D. Powell.
 
 ==Revision history
 
+* May 8, 2012: Updated default value info for _rhobeg_ and _rhoend_.
 * May 7, 2012: Added info on _logger_ option.
 * April 20, 2012: Initial document.
