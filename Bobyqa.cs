@@ -1329,13 +1329,13 @@ namespace Cureos.Numerics
 
                 //     Investigate whether more components of W can be fixed.
 
-                var wsqsav = 0.0;
-                do
                 {
+                    L_120:
                     var temp = adelt * adelt - wfixsq;
+
                     if (temp > ZERO)
                     {
-                        wsqsav = wfixsq;
+                        var wsqsav = wfixsq;
                         step = Math.Sqrt(temp / ggfree);
                         ggfree = ZERO;
                         for (var I = 1; I <= n; ++I)
@@ -1359,8 +1359,9 @@ namespace Cureos.Numerics
                                 }
                             }
                         }
+                        if (wfixsq > wsqsav && ggfree > ZERO) goto L_120;
                     }
-                } while (wfixsq > wsqsav && ggfree > ZERO);
+                }
 
                 //     Set the remaining free components of W and all components of XALT,
                 //     except that W may be scaled later.
