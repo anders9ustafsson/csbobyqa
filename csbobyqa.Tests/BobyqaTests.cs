@@ -111,7 +111,7 @@ namespace Cureos.Numerics.Tests
             return f;
         }
 
-        [TestCase(13, 47)]
+        [TestCase(13, 78)]
         public void FindMinimum_ConstrainedRosenWithAdditionalInterpolationPoints_ReturnsValidMinimum(int n, int maxAdditionalPoints)
         {
             var xl = Enumerable.Repeat(-1.0, n).ToArray();
@@ -123,7 +123,7 @@ namespace Cureos.Numerics.Tests
                 Console.WriteLine("\nNumber of additional points = {0}", num);
                 var npt = 2 * n + 1 + num;
                 var x = Enumerable.Repeat(0.1, n).ToArray();
-                Bobyqa.FindMinimum(Rosen, n, x, xl, xu, npt, -1, 1.0e-8, 1, 2000, Console.Out);
+                Bobyqa.FindMinimum(Rosen, n, x, xl, xu, npt, -1, 1.0e-8, 1, 3000, Console.Out);
                 CollectionAssert.AreEqual(expected, x, new DoubleComparer(1.0e-6));
             }
         }
